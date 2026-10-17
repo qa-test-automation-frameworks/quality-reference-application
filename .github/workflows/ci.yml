@@ -58,6 +58,11 @@ jobs:
           done
           test -s /tmp/quality-reference-ready.json
           node scripts/smoke-compose.mjs
+      - name: Collect Compose diagnostics on failure
+        if: failure()
+        run: |
+          docker compose ps --all
+          docker compose logs --no-color
       - name: Stop isolated Docker Compose stack
         if: always()
         run: docker compose down --volumes --remove-orphans
