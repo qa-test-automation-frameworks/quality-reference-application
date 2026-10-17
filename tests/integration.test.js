@@ -138,6 +138,29 @@ test('persisted claim journey enforces identity ownership, reviewer transitions,
   assert.equal(ownScope.rows[0].count, 1);
 });
 
+test('compatibility contract: API v1 accepts the published 10,000 USD claim limit', async () => {
+  const memberLogin = await login('member-a');
+  const member = memberLogin.payload.token;
+  const policies = await request('/api/v1/policies', { token: member });
+  const policyId = policies.payload.items[0].id;
+
+  const atLimit = await request('/api/v1/claims', {
+    method: 'POST',
+    token: member,
+    body: { policyId, amountMinor: 1_000_000, currency: 'USD', category: 'auto' },
+  });
+  assert.equal(atLimit.response.status, 201);
+  assert.equal(atLimit.payload.claim.amountMinor, 1_000_000);
+
+  const aboveLimit = await request('/api/v1/claims', {
+    method: 'POST',
+    token: member,
+    body: { policyId, amountMinor: 1_000_001, currency: 'USD', category: 'auto' },
+  });
+  assert.equal(aboveLimit.response.status, 422);
+  assert.equal(aboveLimit.payload.error.code, 'VALIDATION_ERROR');
+});
+
 test('test controls and test-session issuance are not exposed when test mode is disabled', async () => {
   process.env.TEST_MODE = 'false';
   const production = await import('../src/server.js?production-mode-check');
