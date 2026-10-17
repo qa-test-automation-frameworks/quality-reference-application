@@ -20,7 +20,7 @@ const uuid = z.uuid();
 const sessionSchema = z.object({ identityKey: z.enum(['member-a', 'member-b', 'reviewer']) }).strict();
 const createClaimSchema = z.object({
   policyId: uuid,
-  amountMinor: z.number().int().min(1).max(1_000_000),
+  amountMinor: z.number().int().min(1).max(500_000),
   currency: z.literal('USD'),
   category: z.enum(CLAIM_CATEGORIES),
 }).strict();

@@ -13,8 +13,8 @@ export function canTransition(from, to) {
 }
 
 export function assertClaimAmount(amountMinor) {
-  if (!Number.isSafeInteger(amountMinor) || amountMinor < 1 || amountMinor > 1_000_000) {
-    const error = new Error('Claim amount must be between 1 and 1,000,000 USD cents.');
+  if (!Number.isSafeInteger(amountMinor) || amountMinor < 1 || amountMinor > 500_000) {
+    const error = new Error('Claim amount must be between 1 and 500,000 USD cents.');
     error.code = 'INVALID_AMOUNT';
     error.status = 422;
     throw error;
