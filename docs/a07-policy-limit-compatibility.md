@@ -10,18 +10,41 @@ The change is validation and contract-only: persisted claim rows, migrations, se
 
 1. **Green baseline:** commit `9e9f0349cadeb29988118958eec067fa5693d8af` adds a PostgreSQL integration assertion that v1 accepts 1,000,000 cents and rejects 1,000,001. Hosted baseline run `39007638338` passed.
 2. **Deliberate red control:** commit `2a2c871b818d19a2cfdfe8b9e6718bac7430ca09` changed the existing v1 limit in place. Hosted run `39007706443` failed on the preserved v1 acceptance assertion (1,000,000 cents received a 422). This is expected evidence that the test detects the compatibility break; do not merge that state as a product release.
-3. **Compatible repair:** retain the v1 acceptance test, introduce v2 with a separate 500,000-cent schema/domain bound, and move the UI to v2. The PostgreSQL integration test now checks v2 at-limit acceptance, above-limit rejection, policy-advertised limit, and v1 acceptance in the same runtime. Hosted compatible CI is the release gate; this guide must be updated with its final run URL and result before A07 is marked complete.
-4. **Consumer contract:** Playwright UI coverage should verify that the form advertises and enforces $5,000 and can submit at the limit. K6 must continue its established workload against the same app release/digest and check its existing latency/error budgets. Verity should check the v2 policy limit and answer with a citation to the relevant policy/contract evidence. Record each consumer branch and hosted run in the portfolio ledger; a local result is not a substitute for hosted evidence.
+3. **Compatible repair:** retain the v1 acceptance test, introduce v2 with a separate 500,000-cent schema/domain bound, and move the UI to v2. The PostgreSQL integration test checks v2 at-limit acceptance, above-limit rejection, policy-advertised limit, v1 acceptance, ownership, reviewer authorization, version conflicts, and ordered audit events in the same runtime. [Hosted compatible CI run 39008067517](https://github.com/qa-test-automation-frameworks/quality-reference-application/actions/runs/39008067517) passed on source `3bc1c12abbbd4b891dc0cf09616253b86e90bae4`.
+4. **Consumer contract:** [Playwright PR #55](https://github.com/qa-test-automation-frameworks/playwright-typescript-framework/pull/55) builds the same immutable source and checks that the form advertises/enforces $5,000 and submits at the limit. [Verity PR #31](https://github.com/qa-test-automation-frameworks/verity-policy-coverage-eval-framework/pull/31) reads v2 policy limits and cites the versioned policy section in a no-key assistant test. Their hosted runs are still required; local checks do not establish the cross-layer exits.
+
+## Risk map
+
+| Surface | Intended effect | Main failure mode | Evidence |
+|---|---|---|---|
+| API v1 | No behavior change; retain $10,000 acceptance | In-place validation change breaks deployed clients | Baseline and intentional red-control runs; v1 pass in compatible PostgreSQL suite |
+| API v2 | Add a $5,000 cap and report the limit on policies | Server/schema/UI disagree at the boundary | OpenAPI contract and PostgreSQL boundary test |
+| Browser UI | Switch first-party requests to v2 and set its native form maximum from policy data | Client shows a stale or permissive limit | Playwright boundary test in PR #55 |
+| Verity assistant | Read v2 workspace data and cite the v2 policy limit | Stale corpus or unsupported answer/citation | No-key provider stub, v0.2.0 fixture, and PR #31 hosted integration |
+| Persistence/review flow | No schema, ownership, or transition change | Versioned route bypasses existing authorization/event rules | PostgreSQL v2 workflow test in run 39008067517 |
+| Performance | No query, storage, or concurrency path change; only bounded request validation and policy metadata | An unsubstantiated claim of “no impact” | No performance claim is made; a K6 run is not a mandatory A07 gate for this change |
+
+## Compatibility matrix
+
+| Consumer/target | API version | Limit | Expected behavior |
+|---|---|---:|---|
+| APP `0.1.0` | v1 | $10,000 | Existing published contract |
+| APP `0.2.0` | v1 | $10,000 | Kept for existing clients |
+| APP `0.2.0` | v2 | $5,000 | New contract; policy response advertises 500,000 cents |
+| APP `0.2.0` browser UI | v2 | $5,000 | Uses the v2 advertised value for the native input bound |
+| Verity assistant corpus/tool `v0.2.0`/`v2` | v2 | $5,000 | Reads the returned limit and cites the matching retrieved section |
+
+The old immutable APP image remains the rollback target. Consumer source pins are explicit; other repositories do not have to move to APP `0.2.0` as part of this change.
 
 ## Review checks
 
 - API v1: 1,000,000 cents succeeds; 1,000,001 is rejected.
 - API v2: policy response advertises 500,000; 500,000 succeeds; 500,001 is rejected.
 - The browser submits to v2 and sets the native input maximum from the API response.
-- Existing authorization, namespace isolation, reviewer workflow, concurrency versioning, and event history tests remain green.
+- Existing authorization, namespace isolation, reviewer workflow, concurrency versioning, and event history tests remain green for both v1 and v2 routes.
 - OpenAPI describes both contracts and CI validates required paths and bounds.
 - Image metadata labels the app release `0.2.0`; seed/readiness remains `v0.1.0`.
-- No migration or database data rewrite is required. Performance impact is expected to be negligible because the changed path is bounded request validation and response metadata; make no performance claim without the existing K6 hosted run.
+- No migration or database data rewrite is required. No performance gate is mandatory: the versioned cap changes bounded request validation and response metadata, without changing database queries, persistence, or concurrency. No performance claim is made; use the K6 workload only if a measured performance risk is later identified.
 
 ## Rollback
 
