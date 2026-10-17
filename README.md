@@ -40,7 +40,7 @@ Run logs are structured JSON on stdout/stderr. Request bodies, authorization hea
 
 ## Contract and verification
 
-The API contract is [OpenAPI 3.1](openapi.yaml). Stable fields are status, error `code`, `correlationId`, IDs, claim state, version, and integer USD minor-unit amounts. Error `message` text is diagnostic and is not a compatibility key. The domain transition rules are independently tested in `tests/domain.test.js`; PostgreSQL-backed tests cover ownership, role assignment, audit persistence, optimistic version checks, namespace isolation, control-token enforcement, and test-mode route disabling.
+The API contract is [OpenAPI 3.1](openapi.yaml). API v1 preserves its 10,000 USD claim limit; additive API v2 caps claims at 5,000 USD and reports the limit with each policy. The browser UI uses v2 while existing v1 clients remain supported. Stable fields are status, error `code`, `correlationId`, IDs, claim state, version, and integer USD minor-unit amounts. Error `message` text is diagnostic and is not a compatibility key. The domain transition rules are independently tested in `tests/domain.test.js`; PostgreSQL-backed tests cover ownership, role assignment, audit persistence, optimistic version checks, namespace isolation, control-token enforcement, and test-mode route disabling.
 
 ```bash
 npm run check:runtime
@@ -54,4 +54,4 @@ For local integration tests, export a disposable PostgreSQL `DATABASE_URL`, uniq
 
 The [CI and image workflow](.github/workflows/ci.yml) verifies two independent paths: PostgreSQL-backed API/domain checks and a Docker Compose smoke journey. After a successful push to `main`, it publishes `ghcr.io/qa-test-automation-frameworks/quality-reference-application` for `linux/amd64` and `linux/arm64`; use the `@sha256:…` digest in the workflow summary as the consumer target. The `sha-<commit>` tag is a lookup convenience, not the immutable identity.
 
-The reference slice owns migrations, seed identities, OpenAPI, authorization and domain invariants. Consumers own their independently written expectations and test adapters. See [ADR 007](../.github/docs/adr/007-shared-reference-application.md) for coverage boundaries and non-goals. App version `0.1.0` and fixture version `v0.1.0` are separate identifiers; every consumer must pin both the app release/image digest and fixture version.
+The reference slice owns migrations, seed identities, OpenAPI, authorization and domain invariants. Consumers own their independently written expectations and test adapters. See [ADR 007](../.github/docs/adr/007-shared-reference-application.md) for coverage boundaries and non-goals. App version `0.2.0` and fixture version `v0.1.0` are separate identifiers; every consumer must pin both the app release/image digest and fixture version. See [A07 compatibility guide](docs/a07-policy-limit-compatibility.md) for the deliberate breaking control, compatible API change, cross-layer assertions, and rollback steps.

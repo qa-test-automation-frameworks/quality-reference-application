@@ -1,5 +1,7 @@
 export const CLAIM_CATEGORIES = Object.freeze(['auto', 'property_damage', 'theft']);
 export const CLAIM_STATES = Object.freeze(['submitted', 'under_review', 'approved', 'rejected']);
+export const API_V1_CLAIM_LIMIT_MINOR = 1_000_000;
+export const API_V2_CLAIM_LIMIT_MINOR = 500_000;
 
 const transitions = new Map([
   ['submitted', new Set(['under_review'])],
@@ -12,9 +14,9 @@ export function canTransition(from, to) {
   return transitions.get(from)?.has(to) ?? false;
 }
 
-export function assertClaimAmount(amountMinor) {
-  if (!Number.isSafeInteger(amountMinor) || amountMinor < 1 || amountMinor > 1_000_000) {
-    const error = new Error('Claim amount must be between 1 and 1,000,000 USD cents.');
+export function assertClaimAmount(amountMinor, limitMinor = API_V1_CLAIM_LIMIT_MINOR) {
+  if (!Number.isSafeInteger(amountMinor) || amountMinor < 1 || amountMinor > limitMinor) {
+    const error = new Error(`Claim amount must be between 1 and ${limitMinor.toLocaleString('en-US')} USD cents.`);
     error.code = 'INVALID_AMOUNT';
     error.status = 422;
     throw error;

@@ -56,6 +56,13 @@ async function login(identityKey, extra = {}) {
   return request('/api/v1/sessions', { method: 'POST', body: { identityKey, ...extra } });
 }
 
+test('serves the browser amount utility as a same-origin JavaScript module', async () => {
+  const response = await fetch(`${baseUrl}/amount.js`);
+  assert.equal(response.status, 200);
+  assert.match(response.headers.get('content-type'), /^text\/javascript/);
+  assert.match(await response.text(), /amountToMinorUnits/);
+});
+
 test('persisted claim journey enforces identity ownership, reviewer transitions, concurrency, and run isolation', async () => {
   const memberLogin = await login('member-a');
   assert.equal(memberLogin.response.status, 201);
@@ -136,6 +143,98 @@ test('persisted claim journey enforces identity ownership, reviewer transitions,
   assert.equal(otherScope.rows[0].count, SEED.policies.length);
   const ownScope = await pool.query('SELECT count(*)::int AS count FROM claims WHERE namespace_id = $1', [process.env.APP_NAMESPACE]);
   assert.equal(ownScope.rows[0].count, 1);
+});
+
+test('compatibility contract: API v1 accepts the published 10,000 USD claim limit', async () => {
+  const memberLogin = await login('member-a');
+  const member = memberLogin.payload.token;
+  const policies = await request('/api/v1/policies', { token: member });
+  const policyId = policies.payload.items[0].id;
+
+  const atLimit = await request('/api/v1/claims', {
+    method: 'POST',
+    token: member,
+    body: { policyId, amountMinor: 1_000_000, currency: 'USD', category: 'auto' },
+  });
+  assert.equal(atLimit.response.status, 201);
+  assert.equal(atLimit.payload.claim.amountMinor, 1_000_000);
+
+  const aboveLimit = await request('/api/v1/claims', {
+    method: 'POST',
+    token: member,
+    body: { policyId, amountMinor: 1_000_001, currency: 'USD', category: 'auto' },
+  });
+  assert.equal(aboveLimit.response.status, 422);
+  assert.equal(aboveLimit.payload.error.code, 'VALIDATION_ERROR');
+});
+
+test('API v2 caps claims at 5,000 USD while API v1 keeps its 10,000 USD contract', async () => {
+  const memberLogin = await login('member-a');
+  const member = memberLogin.payload.token;
+  const policies = await request('/api/v2/policies', { token: member });
+  assert.equal(policies.response.status, 200);
+  assert.equal(policies.payload.items[0].claimAmountLimitMinor, 500_000);
+  const policyId = policies.payload.items[0].id;
+
+  const atLimit = await request('/api/v2/claims', {
+    method: 'POST', token: member,
+    body: { policyId, amountMinor: 500_000, currency: 'USD', category: 'auto' },
+  });
+  assert.equal(atLimit.response.status, 201);
+  assert.equal(atLimit.payload.claim.amountMinor, 500_000);
+  const claimId = atLimit.payload.claim.id;
+
+  const memberBLogin = await login('member-b');
+  const memberBRead = await request(`/api/v2/claims/${claimId}`, { token: memberBLogin.payload.token });
+  assert.equal(memberBRead.response.status, 404);
+
+  const memberTransition = await request(`/api/v2/claims/${claimId}`, {
+    method: 'PATCH', token: member,
+    body: { status: 'approved', expectedVersion: 1 },
+  });
+  assert.equal(memberTransition.response.status, 403);
+
+  const reviewerLogin = await login('reviewer');
+  const reviewer = reviewerLogin.payload.token;
+  const review = await request(`/api/v2/claims/${claimId}`, {
+    method: 'PATCH', token: reviewer,
+    body: { status: 'under_review', expectedVersion: 1 },
+  });
+  assert.equal(review.response.status, 200);
+  assert.equal(review.payload.claim.version, 2);
+
+  const staleTransition = await request(`/api/v2/claims/${claimId}`, {
+    method: 'PATCH', token: reviewer,
+    body: { status: 'approved', expectedVersion: 1 },
+  });
+  assert.equal(staleTransition.response.status, 409);
+  assert.equal(staleTransition.payload.error.code, 'VERSION_CONFLICT');
+
+  const approved = await request(`/api/v2/claims/${claimId}`, {
+    method: 'PATCH', token: reviewer,
+    body: { status: 'approved', expectedVersion: 2 },
+  });
+  assert.equal(approved.response.status, 200);
+  assert.equal(approved.payload.claim.version, 3);
+
+  const events = await request(`/api/v2/claims/${claimId}/events`, { token: reviewer });
+  assert.deepEqual(events.payload.items.map((event) => [event.fromStatus, event.toStatus, event.claimVersion]), [
+    [null, 'submitted', 1], ['submitted', 'under_review', 2], ['under_review', 'approved', 3],
+  ]);
+
+  const aboveLimit = await request('/api/v2/claims', {
+    method: 'POST', token: member,
+    body: { policyId, amountMinor: 500_001, currency: 'USD', category: 'auto' },
+  });
+  assert.equal(aboveLimit.response.status, 422);
+  assert.equal(aboveLimit.payload.error.code, 'VALIDATION_ERROR');
+
+  const v1LimitStillAccepted = await request('/api/v1/claims', {
+    method: 'POST', token: member,
+    body: { policyId, amountMinor: 1_000_000, currency: 'USD', category: 'auto' },
+  });
+  assert.equal(v1LimitStillAccepted.response.status, 201);
+  assert.equal(v1LimitStillAccepted.payload.claim.amountMinor, 1_000_000);
 });
 
 test('test controls and test-session issuance are not exposed when test mode is disabled', async () => {

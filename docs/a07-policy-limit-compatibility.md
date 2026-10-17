@@ -1,0 +1,55 @@
+# A07: Policy claim-limit change and compatibility evidence
+
+## Change
+
+The application release changes from `0.1.0` to `0.2.0`. API v1 remains available with its existing 1,000,000-cent ($10,000) limit. API v2 is additive and caps claims at 500,000 cents ($5,000). V2 policy reads include `claimAmountLimitMinor`, so clients can render limits from the contract rather than duplicating a hidden server constant. The first-party browser UI moves to v2; integrations that need the old behavior can keep calling v1.
+
+The change is validation and contract-only: persisted claim rows, migrations, seed data, ownership rules, review transitions, and audit-event semantics are unchanged. Fixture version stays `v0.1.0` because its contents and initialization semantics did not change.
+
+## Evidence sequence
+
+1. **Green baseline:** commit `9e9f0349cadeb29988118958eec067fa5693d8af` adds a PostgreSQL integration assertion that v1 accepts 1,000,000 cents and rejects 1,000,001. Hosted baseline run `39007638338` passed.
+2. **Deliberate red control:** commit `2a2c871b818d19a2cfdfe8b9e6718bac7430ca09` changed the existing v1 limit in place. Hosted run `39007706443` failed on the preserved v1 acceptance assertion (1,000,000 cents received a 422). This is expected evidence that the test detects the compatibility break; do not merge that state as a product release.
+3. **Compatible repair:** retain the v1 acceptance test, introduce v2 with a separate 500,000-cent schema/domain bound, and move the UI to v2. The PostgreSQL integration test checks v2 at-limit acceptance, above-limit rejection, policy-advertised limit, v1 acceptance, ownership, reviewer authorization, version conflicts, and ordered audit events in the same runtime. [Hosted compatible CI run 39008067517](https://github.com/qa-test-automation-frameworks/quality-reference-application/actions/runs/39008067517) passed on source `3bc1c12abbbd4b891dc0cf09616253b86e90bae4`. Follow-up [run 39009486078](https://github.com/qa-test-automation-frameworks/quality-reference-application/actions/runs/39009486078) passed on `251f4452baeb9e33b85c04024a6ebf86ccf32fe7` after replacing floating-point conversion with exact decimal-text to integer cents. The browser pilot then caught that the imported `/amount.js` module was missing from the static asset allowlist; [run 39009733278](https://github.com/qa-test-automation-frameworks/quality-reference-application/actions/runs/39009733278) passed on `21af1f41561a6d83ae44933dd36d9daa5e6a6e4c` after adding that route and an integration assertion for its JavaScript MIME type.
+4. **Consumer contract:** [Playwright PR #55](https://github.com/qa-test-automation-frameworks/playwright-typescript-framework/pull/55) builds the same immutable source and checks that the form advertises/enforces $5,000 and submits at the limit. Hosted runs `39008732914`, `39008985100`, and `39009521636` exposed the ambiguous heading, floating-point conversion, and missing JavaScript module route. These are fixed in PR #55; consumer run `39009747203` passed all five browser tests against source `21af1f41561a6d83ae44933dd36d9daa5e6a6e4c`, and all current PR checks passed. [Verity PR #31](https://github.com/qa-test-automation-frameworks/verity-policy-coverage-eval-framework/pull/31) reads v2 policy limits and cites the versioned policy section in a no-key assistant test; [hosted integration run 39008590163](https://github.com/qa-test-automation-frameworks/verity-policy-coverage-eval-framework/actions/runs/39008590163) passed against the real app and PostgreSQL. The broader Verity CI remains red on inherited expired security exceptions and a corrupt cached ONNX model; those are tracked separately under R02.
+
+## Risk map
+
+| Surface | Intended effect | Main failure mode | Evidence |
+|---|---|---|---|
+| API v1 | No behavior change; retain $10,000 acceptance | In-place validation change breaks deployed clients | Baseline and intentional red-control runs; v1 pass in compatible PostgreSQL suite |
+| API v2 | Add a $5,000 cap and report the limit on policies | Server/schema/UI disagree at the boundary | OpenAPI contract and PostgreSQL boundary test |
+| Browser UI | Switch first-party requests to v2 and set its native form maximum from policy data | Client shows a stale limit or rejects valid decimal cents | Playwright boundary/lifecycle tests in PR #55 |
+| Verity assistant | Read v2 workspace data and cite the v2 policy limit | Stale corpus or unsupported answer/citation | No-key provider stub, v0.2.0 fixture, and PR #31 hosted integration |
+| Persistence/review flow | No schema, ownership, or transition change | Versioned route bypasses existing authorization/event rules | PostgreSQL v2 workflow test in run 39008067517 |
+| Performance | No query, storage, or concurrency path change; only bounded request validation and policy metadata | An unsubstantiated claim of “no impact” | No performance claim is made; a K6 run is not a mandatory A07 gate for this change |
+
+## Compatibility matrix
+
+| Consumer/target | API version | Limit | Expected behavior |
+|---|---|---:|---|
+| APP `0.1.0` | v1 | $10,000 | Existing published contract |
+| APP `0.2.0` | v1 | $10,000 | Kept for existing clients |
+| APP `0.2.0` | v2 | $5,000 | New contract; policy response advertises 500,000 cents |
+| APP `0.2.0` browser UI | v2 | $5,000 | Uses the v2 advertised value for the native input bound |
+| Verity assistant corpus/tool `v0.2.0`/`v2` | v2 | $5,000 | Reads the returned limit and cites the matching retrieved section |
+
+The old immutable APP image remains the rollback target. Consumer source pins are explicit; other repositories do not have to move to APP `0.2.0` as part of this change.
+
+## Review checks
+
+- API v1: 1,000,000 cents succeeds; 1,000,001 is rejected.
+- API v2: policy response advertises 500,000; 500,000 succeeds; 500,001 is rejected.
+- The browser submits to v2, sets the native input maximum from the API response, and converts decimal text to integer cents without floating-point arithmetic.
+- Existing authorization, namespace isolation, reviewer workflow, concurrency versioning, and event history tests remain green for both v1 and v2 routes.
+- OpenAPI describes both contracts and CI validates required paths and bounds.
+- Image metadata labels the app release `0.2.0`; seed/readiness remains `v0.1.0`.
+- No migration or database data rewrite is required. No performance gate is mandatory: the versioned cap changes bounded request validation and response metadata, without changing database queries, persistence, or concurrency. No performance claim is made; use the K6 workload only if a measured performance risk is later identified.
+
+## Rollback
+
+1. Revert the compatible application commit(s) on the feature branch and rerun hosted CI before publishing. Do not revert only the UI if it would continue sending requests to v2 that no longer exists.
+2. If a published `0.2.0` image must be withdrawn operationally, pin consumers back to the previously verified immutable image `ghcr.io/qa-test-automation-frameworks/quality-reference-application@sha256:284ae3fa4f2a31a4322b74a6f37e38f0d101879389c656bf1d553df7ec616469` (source `e9f438e06a2b092dccfc6e9ab1820ff2562ddad7`) and fixture `v0.1.0`.
+3. No database rollback is needed: the change does not alter schema or stored records. Re-run each consumer's setup, API, browser, and load checks after changing its pinned digest.
+
+The prior image is a recovery target, not evidence that the new release has passed consumer compatibility checks. Update this guide with the immutable `0.2.0` digest and consumer run links only after publication and verification.
