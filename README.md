@@ -11,7 +11,7 @@ This is a local reference target, not an insurance service. It makes no real cla
 - Each run must use a unique `COMPOSE_PROJECT_NAME`, `APP_NAMESPACE`, `APP_PORT`, and random test-control token. Compose creates a private network and dedicated database volume; only the app's port is exposed, bound to `127.0.0.1`.
 - Every data access includes the server-configured namespace. The reset route accepts no namespace in its request and deletes only the current run's records.
 - Synthetic session and seed/reset endpoints return 404 unless `TEST_MODE=true`. Test mode assigns role server-side from the seeded identity; clients cannot set or elevate roles. The session token is random, expires, and is stored only as a SHA-256 digest. This mechanism is a local test fixture, not production authentication.
-- `sourceRevision` is supplied by the test runner and is included in readiness. Consumer repositories pin immutable app commit/image identities and their fixture version; they do not follow `latest` or the app's default branch.
+- `sourceRevision` is baked into the image at build time and included in readiness. The main-branch workflow publishes a multi-platform GitHub Container Registry image with SBOM/provenance and writes its immutable digest to the workflow summary. Consumer repositories pin that image digest and the fixture version; they do not follow a mutable tag or the app's default branch.
 
 ## Start one isolated local instance
 
@@ -51,5 +51,7 @@ npm run verify
 ```
 
 For local integration tests, export a disposable PostgreSQL `DATABASE_URL`, unique `APP_NAMESPACE`, and at least 32-byte `TEST_CONTROL_TOKEN`. The tests migrate and write only to that configured database and clean up their unique namespace. Never point them at a shared or production database.
+
+The [CI and image workflow](.github/workflows/ci.yml) verifies two independent paths: PostgreSQL-backed API/domain checks and a Docker Compose smoke journey. After a successful push to `main`, it publishes `ghcr.io/qa-test-automation-frameworks/quality-reference-application` for `linux/amd64` and `linux/arm64`; use the `@sha256:…` digest in the workflow summary as the consumer target. The `sha-<commit>` tag is a lookup convenience, not the immutable identity.
 
 The reference slice owns migrations, seed identities, OpenAPI, authorization and domain invariants. Consumers own their independently written expectations and test adapters. See [ADR 007](../.github/docs/adr/007-shared-reference-application.md) for coverage boundaries and non-goals. App version `0.1.0` and fixture version `v0.1.0` are separate identifiers; every consumer must pin both the app release/image digest and fixture version.

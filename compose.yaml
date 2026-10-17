@@ -16,7 +16,10 @@ services:
       - app
 
   app:
-    build: .
+    build:
+      context: .
+      args:
+        APP_SOURCE_SHA: ${APP_SOURCE_SHA:-working-tree}
     environment:
       NODE_ENV: production
       PORT: 4300

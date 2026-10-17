@@ -7,6 +7,7 @@ process.env.APP_NAMESPACE = `test-${randomUUID()}`;
 process.env.APP_SOURCE_SHA ||= 'integration-test';
 process.env.TEST_MODE = 'true';
 process.env.TEST_CONTROL_TOKEN = randomBytes(32).toString('hex');
+const expectedSourceSha = process.env.APP_SOURCE_SHA;
 
 const { createServer, initialize, close } = await import('../src/server.js');
 const { pool, seedNamespace, SEED } = await import('../src/database.js');
@@ -26,7 +27,7 @@ before(async () => {
   const response = await fetch(`${baseUrl}/health/ready`);
   assert.equal(response.status, 200);
   const ready = await response.json();
-  assert.deepEqual(ready, { status: 'ready', sourceRevision: 'integration-test', seedVersion: 'v0.1.0', datastore: true });
+  assert.deepEqual(ready, { status: 'ready', sourceRevision: expectedSourceSha, seedVersion: 'v0.1.0', datastore: true });
 });
 
 after(async () => {
