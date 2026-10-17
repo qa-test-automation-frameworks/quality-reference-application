@@ -13,7 +13,7 @@ services:
     volumes:
       - postgres-data:/var/lib/postgresql
     networks:
-      - app
+      - data
 
   app:
     build:
@@ -36,7 +36,8 @@ services:
       db:
         condition: service_healthy
     networks:
-      - app
+      - frontend
+      - data
     read_only: true
     tmpfs:
       - /tmp:size=16m,mode=1777
@@ -44,7 +45,8 @@ services:
       - no-new-privileges:true
 
 networks:
-  app:
+  frontend:
+  data:
     internal: true
 
 volumes:
