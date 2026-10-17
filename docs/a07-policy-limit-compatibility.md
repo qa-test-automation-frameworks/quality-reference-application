@@ -29,24 +29,24 @@ The current published app source is `e90067b38bcd88fbb9118388f9fb8cc9dee6d493`; 
 
 ## Risk map
 
-| Surface | Intended effect | Main failure mode | Evidence |
-|---|---|---|---|
-| API v1 | No behavior change; retain $10,000 acceptance | In-place validation change breaks deployed clients | Baseline and intentional red-control runs; v1 pass in compatible PostgreSQL suite |
-| API v2 | Add a $5,000 cap and report the limit on policies | Server/schema/UI disagree at the boundary | OpenAPI contract and PostgreSQL boundary test |
-| Browser UI | Switch first-party requests to v2 and set its native form maximum from policy data | Client shows a stale limit or rejects valid decimal cents | Playwright PR #55 boundary tests, PR #56 post-merge main run, PR #57 migration proof, and PR #58 post-merge exact-current-digest suite plus 20-sample compatibility study |
-| Verity assistant | Read v2 workspace data and cite the v2 policy limit | Stale corpus or unsupported answer/citation | No-key provider stub, v0.2.0 fixture, and PR #31 hosted integration |
-| Persistence/review flow | No schema, ownership, or transition change | Versioned route bypasses existing authorization/event rules | PostgreSQL v2 workflow test in run 39008067517 |
-| Performance | No query, storage, or concurrency path change; only bounded request validation and policy metadata | An unsubstantiated claim of “no impact” | No performance claim is made; a K6 run is not a mandatory A07 gate for this change |
+| Surface                 | Intended effect                                                                                    | Main failure mode                                           | Evidence                                                                                                                                                                  |
+| ----------------------- | -------------------------------------------------------------------------------------------------- | ----------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| API v1                  | No behavior change; retain $10,000 acceptance                                                      | In-place validation change breaks deployed clients          | Baseline and intentional red-control runs; v1 pass in compatible PostgreSQL suite                                                                                         |
+| API v2                  | Add a $5,000 cap and report the limit on policies                                                  | Server/schema/UI disagree at the boundary                   | OpenAPI contract and PostgreSQL boundary test                                                                                                                             |
+| Browser UI              | Switch first-party requests to v2 and set its native form maximum from policy data                 | Client shows a stale limit or rejects valid decimal cents   | Playwright PR #55 boundary tests, PR #56 post-merge main run, PR #57 migration proof, and PR #58 post-merge exact-current-digest suite plus 20-sample compatibility study |
+| Verity assistant        | Read v2 workspace data and cite the v2 policy limit                                                | Stale corpus or unsupported answer/citation                 | No-key provider stub, v0.2.0 fixture, and PR #31 hosted integration                                                                                                       |
+| Persistence/review flow | No schema, ownership, or transition change                                                         | Versioned route bypasses existing authorization/event rules | PostgreSQL v2 workflow test in run 39008067517                                                                                                                            |
+| Performance             | No query, storage, or concurrency path change; only bounded request validation and policy metadata | An unsubstantiated claim of “no impact”                     | No performance claim is made; a K6 run is not a mandatory A07 gate for this change                                                                                        |
 
 ## Compatibility matrix
 
-| Consumer/target | API version | Limit | Expected behavior |
-|---|---|---:|---|
-| APP `0.1.0` | v1 | $10,000 | Existing published contract |
-| APP `0.2.0` | v1 | $10,000 | Kept for existing clients |
-| APP `0.2.0` | v2 | $5,000 | New contract; policy response advertises 500,000 cents |
-| APP `0.2.0` browser UI | v2 | $5,000 | Uses the v2 advertised value for the native input bound |
-| Verity assistant corpus/tool `v0.2.0`/`v2` | v2 | $5,000 | Reads the returned limit and cites the matching retrieved section |
+| Consumer/target                            | API version |   Limit | Expected behavior                                                 |
+| ------------------------------------------ | ----------- | ------: | ----------------------------------------------------------------- |
+| APP `0.1.0`                                | v1          | $10,000 | Existing published contract                                       |
+| APP `0.2.0`                                | v1          | $10,000 | Kept for existing clients                                         |
+| APP `0.2.0`                                | v2          |  $5,000 | New contract; policy response advertises 500,000 cents            |
+| APP `0.2.0` browser UI                     | v2          |  $5,000 | Uses the v2 advertised value for the native input bound           |
+| Verity assistant corpus/tool `v0.2.0`/`v2` | v2          |  $5,000 | Reads the returned limit and cites the matching retrieved section |
 
 The old immutable APP image remains the rollback target. Consumer source pins are explicit; other repositories do not have to move to APP `0.2.0` as part of this change.
 
