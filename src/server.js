@@ -4,7 +4,14 @@ import { createServer as createHttpServer } from 'node:http';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
-import { CLAIM_CATEGORIES, CLAIM_STATES, assertClaimAmount, assertTransition } from './domain.js';
+import {
+  API_V1_CLAIM_LIMIT_MINOR,
+  API_V2_CLAIM_LIMIT_MINOR,
+  CLAIM_CATEGORIES,
+  CLAIM_STATES,
+  assertClaimAmount,
+  assertTransition,
+} from './domain.js';
 import { closeDatabase, migrate, pool, resetNamespace, seedNamespace, tokenDigest } from './database.js';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
@@ -20,7 +27,13 @@ const uuid = z.uuid();
 const sessionSchema = z.object({ identityKey: z.enum(['member-a', 'member-b', 'reviewer']) }).strict();
 const createClaimSchema = z.object({
   policyId: uuid,
-  amountMinor: z.number().int().min(1).max(500_000),
+  amountMinor: z.number().int().min(1).max(API_V1_CLAIM_LIMIT_MINOR),
+  currency: z.literal('USD'),
+  category: z.enum(CLAIM_CATEGORIES),
+}).strict();
+const createClaimV2Schema = z.object({
+  policyId: uuid,
+  amountMinor: z.number().int().min(1).max(API_V2_CLAIM_LIMIT_MINOR),
   currency: z.literal('USD'),
   category: z.enum(CLAIM_CATEGORIES),
 }).strict();
@@ -146,6 +159,9 @@ function claimDto(row) {
 async function handleApi(req, res, url, correlationId) {
   const method = req.method || 'GET';
   const path = url.pathname;
+  const versionMatch = /^\/api\/v([12])(?=\/)/.exec(path);
+  const apiVersion = versionMatch?.[1] || '1';
+  const routePath = path.replace(/^\/api\/v[12](?=\/)/, '/api/v1');
   if (method === 'GET' && path === '/health/ready') {
     if (!ready) throw httpError(503, 'NOT_READY', 'Database migrations and fixture initialization have not completed.');
     let result;
@@ -185,17 +201,20 @@ async function handleApi(req, res, url, correlationId) {
   }
 
   const actor = await currentIdentity(req);
-  if (method === 'GET' && path === '/api/v1/policies') {
+  if (method === 'GET' && routePath === '/api/v1/policies') {
     const result = await pool.query(
       `SELECT p.id, p.policy_number AS "policyNumber", p.seed_version AS "seedVersion", p.owner_id AS "ownerId"
        FROM policies p WHERE p.namespace_id = $1 AND ($2::text = 'reviewer' OR p.owner_id = $3::uuid)
        ORDER BY p.policy_number`,
       [namespace, actor.role, actor.id],
     );
-    return { status: 200, body: { items: result.rows.map(({ ownerId: _ownerId, ...policy }) => policy) } };
+    const items = result.rows.map(({ ownerId: _ownerId, ...policy }) => (
+      apiVersion === '2' ? { ...policy, claimAmountLimitMinor: API_V2_CLAIM_LIMIT_MINOR } : policy
+    ));
+    return { status: 200, body: { items } };
   }
 
-  const policyMatch = /^\/api\/v1\/policies\/([^/]+)$/.exec(path);
+  const policyMatch = /^\/api\/v1\/policies\/([^/]+)$/.exec(routePath);
   if (method === 'GET' && policyMatch) {
     if (!uuid.safeParse(policyMatch[1]).success) throw httpError(404, 'RESOURCE_NOT_FOUND', 'The requested policy was not found.');
     const result = await pool.query(
@@ -204,12 +223,19 @@ async function handleApi(req, res, url, correlationId) {
       [namespace, policyMatch[1], actor.id, actor.role],
     );
     if (!result.rows[0]) throw httpError(404, 'RESOURCE_NOT_FOUND', 'The requested policy was not found.');
-    return { status: 200, body: { policy: result.rows[0] } };
+    const policy = apiVersion === '2'
+      ? { ...result.rows[0], claimAmountLimitMinor: API_V2_CLAIM_LIMIT_MINOR }
+      : result.rows[0];
+    return { status: 200, body: { policy } };
   }
 
-  if (method === 'POST' && path === '/api/v1/claims') {
-    const input = parse(createClaimSchema, await readJson(req));
-    assertClaimAmount(input.amountMinor);
+  if (method === 'POST' && routePath === '/api/v1/claims') {
+    const schema = apiVersion === '2' ? createClaimV2Schema : createClaimSchema;
+    const input = parse(schema, await readJson(req));
+    assertClaimAmount(
+      input.amountMinor,
+      apiVersion === '2' ? API_V2_CLAIM_LIMIT_MINOR : API_V1_CLAIM_LIMIT_MINOR,
+    );
     const policy = await pool.query(
       'SELECT id FROM policies WHERE namespace_id = $1 AND id = $2 AND owner_id = $3',
       [namespace, input.policyId, actor.id],
@@ -234,7 +260,7 @@ async function handleApi(req, res, url, correlationId) {
     return { status: 201, body: { claim: claimDto(created) } };
   }
 
-  if (method === 'GET' && path === '/api/v1/claims') {
+  if (method === 'GET' && routePath === '/api/v1/claims') {
     const result = await pool.query(
       `SELECT id, policy_id AS "policyId", status, amount_minor AS "amountMinor", currency, category, version,
               created_at AS "createdAt", updated_at AS "updatedAt"
@@ -245,7 +271,7 @@ async function handleApi(req, res, url, correlationId) {
     return { status: 200, body: { items: result.rows.map(claimDto) } };
   }
 
-  const claimMatch = /^\/api\/v1\/claims\/([^/]+)(?:\/(events))?$/.exec(path);
+  const claimMatch = /^\/api\/v1\/claims\/([^/]+)(?:\/(events))?$/.exec(routePath);
   if (claimMatch && method === 'GET') {
     const id = claimMatch[1];
     if (!uuid.safeParse(id).success) throw httpError(404, 'RESOURCE_NOT_FOUND', 'The requested claim was not found.');
@@ -273,7 +299,7 @@ async function handleApi(req, res, url, correlationId) {
     return { status: 200, body: { claim: claimDto(publicClaim) } };
   }
 
-  const transitionMatch = /^\/api\/v1\/claims\/([^/]+)$/.exec(path);
+  const transitionMatch = /^\/api\/v1\/claims\/([^/]+)$/.exec(routePath);
   if (method === 'PATCH' && transitionMatch) {
     const reviewer = await requireReviewer(req);
     if (!uuid.safeParse(transitionMatch[1]).success) throw httpError(404, 'RESOURCE_NOT_FOUND', 'The requested claim was not found.');

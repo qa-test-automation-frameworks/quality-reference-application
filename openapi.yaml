@@ -1,8 +1,8 @@
 openapi: 3.1.0
 info:
   title: Quality Reference Application API
-  version: 0.1.0
-  description: Synthetic policy and claims contract. The local test-session and reset routes are not production authentication or deployment features.
+  version: 0.2.0
+  description: Synthetic policy and claims contract. API v1 remains supported with its existing 10,000 USD claim limit; API v2 exposes a 5,000 USD claim limit. The local test-session and reset routes are not production authentication or deployment features.
 servers:
   - url: http://127.0.0.1:4300
     description: Loopback-only local Compose instance
@@ -213,6 +213,165 @@ paths:
                         actorRole: { type: string, enum: [member, reviewer] }
         '401': { $ref: '#/components/responses/Error' }
         '404': { $ref: '#/components/responses/Error' }
+  /api/v2/policies:
+    get:
+      operationId: listOwnedPoliciesV2
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Policies visible to the active identity with the v2 claim submission limit
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/PolicyV2' }
+        '401': { $ref: '#/components/responses/Error' }
+  /api/v2/policies/{policyId}:
+    get:
+      operationId: readOwnedPolicyV2
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/PolicyId' }
+      responses:
+        '200':
+          description: Policy owner may read the policy and the v2 claim submission limit
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [policy]
+                properties:
+                  policy: { $ref: '#/components/schemas/PolicyV2' }
+        '401': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+  /api/v2/claims:
+    get:
+      operationId: listVisibleClaimsV2
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Member sees owned claims; reviewer sees claims in the current run namespace
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/ClaimV2' }
+        '401': { $ref: '#/components/responses/Error' }
+    post:
+      operationId: submitClaimV2
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [policyId, amountMinor, currency, category]
+              properties:
+                policyId: { type: string, format: uuid }
+                amountMinor: { type: integer, minimum: 1, maximum: 500000, description: USD cents; max is USD 5,000.00. }
+                currency: { const: USD }
+                category: { type: string, enum: [auto, property_damage, theft] }
+      responses:
+        '201':
+          description: Claim is persisted in submitted state with version 1
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [claim]
+                properties:
+                  claim: { $ref: '#/components/schemas/ClaimV2' }
+        '401': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '422': { $ref: '#/components/responses/Error' }
+  /api/v2/claims/{claimId}:
+    get:
+      operationId: readVisibleClaimV2
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/ClaimId' }
+      responses:
+        '200':
+          description: Owner or reviewer may read; another member receives non-disclosing 404
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [claim]
+                properties:
+                  claim: { $ref: '#/components/schemas/ClaimV2' }
+        '401': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+    patch:
+      operationId: transitionClaimAsReviewerV2
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/ClaimId' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [status, expectedVersion]
+              properties:
+                status: { type: string, enum: [submitted, under_review, approved, rejected] }
+                expectedVersion: { type: integer, minimum: 1 }
+      responses:
+        '200':
+          description: Claim state and immutable audit event are committed together
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [claim]
+                properties:
+                  claim: { $ref: '#/components/schemas/ClaimV2' }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+        '422': { $ref: '#/components/responses/Error' }
+  /api/v2/claims/{claimId}/events:
+    get:
+      operationId: listClaimAuditEventsV2
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/ClaimId' }
+      responses:
+        '200':
+          description: Owner or reviewer may read ordered status-transition audit events
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      required: [fromStatus, toStatus, claimVersion, createdAt, actorDisplayName, actorRole]
+                      properties:
+                        fromStatus: { type: [string, 'null'], enum: [submitted, under_review, approved, rejected, null] }
+                        toStatus: { type: string, enum: [submitted, under_review, approved, rejected] }
+                        claimVersion: { type: integer, minimum: 1 }
+                        createdAt: { type: string, format: date-time }
+                        actorDisplayName: { type: string }
+                        actorRole: { type: string, enum: [member, reviewer] }
+        '401': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
   /__test/seed:
     post:
       operationId: seedCurrentRun
@@ -266,6 +425,14 @@ components:
         id: { type: string, format: uuid }
         policyNumber: { type: string }
         seedVersion: { type: string }
+    PolicyV2:
+      type: object
+      required: [id, policyNumber, seedVersion, claimAmountLimitMinor]
+      properties:
+        id: { type: string, format: uuid }
+        policyNumber: { type: string }
+        seedVersion: { type: string }
+        claimAmountLimitMinor: { const: 500000, description: Maximum requested amount in USD minor units for API v2. }
     Claim:
       type: object
       required: [id, policyId, status, amountMinor, currency, category, version, createdAt, updatedAt]
@@ -274,6 +441,19 @@ components:
         policyId: { type: string, format: uuid }
         status: { type: string, enum: [submitted, under_review, approved, rejected] }
         amountMinor: { type: integer, minimum: 1, maximum: 1000000 }
+        currency: { const: USD }
+        category: { type: string, enum: [auto, property_damage, theft] }
+        version: { type: integer, minimum: 1 }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    ClaimV2:
+      type: object
+      required: [id, policyId, status, amountMinor, currency, category, version, createdAt, updatedAt]
+      properties:
+        id: { type: string, format: uuid }
+        policyId: { type: string, format: uuid }
+        status: { type: string, enum: [submitted, under_review, approved, rejected] }
+        amountMinor: { type: integer, minimum: 1, maximum: 500000 }
         currency: { const: USD }
         category: { type: string, enum: [auto, property_damage, theft] }
         version: { type: integer, minimum: 1 }

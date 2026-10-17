@@ -11,7 +11,7 @@
   <body>
     <a class="skip-link" href="#main">Skip to main content</a>
     <header class="site-header">
-      <p class="eyebrow">Synthetic reference application · fixture v0.1.0</p>
+      <p class="eyebrow">Synthetic reference application · API v2 · fixture v0.1.0</p>
       <h1>Policy and claims</h1>
       <p>This local reference target uses fictional identities and data. It is not an insurance service.</p>
     </header>
@@ -42,7 +42,8 @@
           <label for="policy">Policy</label>
           <select id="policy" name="policyId" required></select>
           <label for="amount">Requested amount (USD)</label>
-          <input id="amount" name="amount" type="number" min="0.01" max="10000.00" step="0.01" required>
+          <input id="amount" name="amount" type="number" min="0.01" max="5000.00" step="0.01" required>
+          <p id="amount-limit-help" class="help-text">API v2 accepts claims up to $5,000.00.</p>
           <label for="category">Category</label>
           <select id="category" name="category" required>
             <option value="auto">Auto</option>

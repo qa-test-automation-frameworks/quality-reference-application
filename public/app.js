@@ -3,6 +3,8 @@ const claimForm = document.querySelector('#claim-form');
 const sessionStatus = document.querySelector('#session-status');
 const identitySelect = document.querySelector('#identity');
 const policySelect = document.querySelector('#policy');
+const amountInput = document.querySelector('#amount');
+const amountLimitHelp = document.querySelector('#amount-limit-help');
 const policySection = document.querySelector('#policy-section');
 const claimFormSection = document.querySelector('#claim-form-section');
 const claimsSection = document.querySelector('#claims-section');
@@ -69,7 +71,7 @@ function renderClaims(claims) {
 }
 
 async function refreshWorkspace() {
-  const policies = await api('/api/v1/policies');
+  const policies = await api('/api/v2/policies');
   policySection.hidden = session.user.role !== 'member';
   claimFormSection.hidden = session.user.role !== 'member';
   policySelect.replaceChildren();
@@ -84,7 +86,10 @@ async function refreshWorkspace() {
     item.textContent = `${policy.policyNumber} · fixture ${policy.seedVersion}`;
     policyList.append(item);
   }
-  const claims = await api('/api/v1/claims');
+  const claimLimitMinor = policies.items[0]?.claimAmountLimitMinor ?? 500_000;
+  amountInput.max = (claimLimitMinor / 100).toFixed(2);
+  amountLimitHelp.textContent = `API v2 accepts claims up to $${amountInput.max}.`;
+  const claims = await api('/api/v2/claims');
   claimsSection.hidden = false;
   renderClaims(claims.items);
 }
@@ -92,7 +97,7 @@ async function refreshWorkspace() {
 async function transition(claim, status) {
   clearMessages();
   try {
-    await api(`/api/v1/claims/${encodeURIComponent(claim.id)}`, {
+    await api(`/api/v2/claims/${encodeURIComponent(claim.id)}`, {
       method: 'PATCH', body: { status, expectedVersion: claim.version },
     });
     notice.textContent = `Claim ${claim.id} moved to ${status.replace('_', ' ')}.`;
@@ -126,7 +131,7 @@ claimForm.addEventListener('submit', async (event) => {
     return;
   }
   try {
-    await api('/api/v1/claims', {
+    await api('/api/v2/claims', {
       method: 'POST',
       body: { policyId: form.get('policyId'), amountMinor: Math.round(amount * 100), currency: 'USD', category: form.get('category') },
     });

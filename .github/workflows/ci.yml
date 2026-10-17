@@ -95,7 +95,7 @@ jobs:
           labels: |
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}
-            org.opencontainers.image.version=0.1.0
+            org.opencontainers.image.version=0.2.0
           sbom: true
           provenance: mode=max
       - name: Record immutable image identity
