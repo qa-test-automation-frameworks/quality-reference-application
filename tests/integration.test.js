@@ -175,6 +175,45 @@ test('API v2 caps claims at 5,000 USD while API v1 keeps its 10,000 USD contract
   });
   assert.equal(atLimit.response.status, 201);
   assert.equal(atLimit.payload.claim.amountMinor, 500_000);
+  const claimId = atLimit.payload.claim.id;
+
+  const memberBLogin = await login('member-b');
+  const memberBRead = await request(`/api/v2/claims/${claimId}`, { token: memberBLogin.payload.token });
+  assert.equal(memberBRead.response.status, 404);
+
+  const memberTransition = await request(`/api/v2/claims/${claimId}`, {
+    method: 'PATCH', token: member,
+    body: { status: 'approved', expectedVersion: 1 },
+  });
+  assert.equal(memberTransition.response.status, 403);
+
+  const reviewerLogin = await login('reviewer');
+  const reviewer = reviewerLogin.payload.token;
+  const review = await request(`/api/v2/claims/${claimId}`, {
+    method: 'PATCH', token: reviewer,
+    body: { status: 'under_review', expectedVersion: 1 },
+  });
+  assert.equal(review.response.status, 200);
+  assert.equal(review.payload.claim.version, 2);
+
+  const staleTransition = await request(`/api/v2/claims/${claimId}`, {
+    method: 'PATCH', token: reviewer,
+    body: { status: 'approved', expectedVersion: 1 },
+  });
+  assert.equal(staleTransition.response.status, 409);
+  assert.equal(staleTransition.payload.error.code, 'VERSION_CONFLICT');
+
+  const approved = await request(`/api/v2/claims/${claimId}`, {
+    method: 'PATCH', token: reviewer,
+    body: { status: 'approved', expectedVersion: 2 },
+  });
+  assert.equal(approved.response.status, 200);
+  assert.equal(approved.payload.claim.version, 3);
+
+  const events = await request(`/api/v2/claims/${claimId}/events`, { token: reviewer });
+  assert.deepEqual(events.payload.items.map((event) => [event.fromStatus, event.toStatus, event.claimVersion]), [
+    [null, 'submitted', 1], ['submitted', 'under_review', 2], ['under_review', 'approved', 3],
+  ]);
 
   const aboveLimit = await request('/api/v2/claims', {
     method: 'POST', token: member,
