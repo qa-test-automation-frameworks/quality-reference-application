@@ -1,0 +1,301 @@
+openapi: 3.1.0
+info:
+  title: Quality Reference Application API
+  version: 0.1.0
+  description: Synthetic policy and claims contract. The local test-session and reset routes are not production authentication or deployment features.
+servers:
+  - url: http://127.0.0.1:4300
+    description: Loopback-only local Compose instance
+paths:
+  /health/ready:
+    get:
+      operationId: readApplicationReadiness
+      summary: Check datastore, migration, and seed readiness
+      responses:
+        '200':
+          description: Application and datastore are ready
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status, sourceRevision, seedVersion, datastore]
+                properties:
+                  status: { const: ready }
+                  sourceRevision: { type: string }
+                  seedVersion: { const: v0.1.0 }
+                  datastore: { const: true }
+        '503': { $ref: '#/components/responses/Error' }
+  /api/v1/sessions:
+    post:
+      operationId: createSyntheticTestSession
+      summary: Issue a server-assigned synthetic identity in test mode only
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [identityKey]
+              properties:
+                identityKey: { type: string, enum: [member-a, member-b, reviewer] }
+      responses:
+        '201':
+          description: Synthetic bearer session issued
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [token, tokenType, expiresAt, user]
+                properties:
+                  token: { type: string }
+                  tokenType: { const: Bearer }
+                  expiresAt: { type: string, format: date-time }
+                  user: { $ref: '#/components/schemas/User' }
+        '404': { $ref: '#/components/responses/Error' }
+        '422': { $ref: '#/components/responses/Error' }
+  /api/v1/policies:
+    get:
+      operationId: listOwnedPolicies
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Policies owned by the active member; reviewers see seeded policies
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/Policy' }
+        '401': { $ref: '#/components/responses/Error' }
+  /api/v1/policies/{policyId}:
+    get:
+      operationId: readOwnedPolicy
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/PolicyId' }
+      responses:
+        '200':
+          description: Policy owner may read the policy
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [policy]
+                properties:
+                  policy: { $ref: '#/components/schemas/Policy' }
+        '401': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+  /api/v1/claims:
+    get:
+      operationId: listVisibleClaims
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Member sees owned claims; reviewer sees claims in the current run namespace
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/Claim' }
+        '401': { $ref: '#/components/responses/Error' }
+    post:
+      operationId: submitClaim
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [policyId, amountMinor, currency, category]
+              properties:
+                policyId: { type: string, format: uuid }
+                amountMinor: { type: integer, minimum: 1, maximum: 1000000, description: USD cents; max is USD 10,000.00. }
+                currency: { const: USD }
+                category: { type: string, enum: [auto, property_damage, theft] }
+      responses:
+        '201':
+          description: Claim is persisted in submitted state with version 1
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [claim]
+                properties:
+                  claim: { $ref: '#/components/schemas/Claim' }
+        '401': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '422': { $ref: '#/components/responses/Error' }
+  /api/v1/claims/{claimId}:
+    get:
+      operationId: readVisibleClaim
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/ClaimId' }
+      responses:
+        '200':
+          description: Owner or reviewer may read; another member receives non-disclosing 404
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [claim]
+                properties:
+                  claim: { $ref: '#/components/schemas/Claim' }
+        '401': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+    patch:
+      operationId: transitionClaimAsReviewer
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/ClaimId' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [status, expectedVersion]
+              properties:
+                status: { type: string, enum: [submitted, under_review, approved, rejected] }
+                expectedVersion: { type: integer, minimum: 1 }
+      responses:
+        '200':
+          description: Claim state and immutable audit event are committed together
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [claim]
+                properties:
+                  claim: { $ref: '#/components/schemas/Claim' }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+        '422': { $ref: '#/components/responses/Error' }
+  /api/v1/claims/{claimId}/events:
+    get:
+      operationId: listClaimAuditEvents
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/ClaimId' }
+      responses:
+        '200':
+          description: Owner or reviewer may read ordered status-transition audit events
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      required: [fromStatus, toStatus, claimVersion, createdAt, actorDisplayName, actorRole]
+                      properties:
+                        fromStatus: { type: [string, 'null'], enum: [submitted, under_review, approved, rejected, null] }
+                        toStatus: { type: string, enum: [submitted, under_review, approved, rejected] }
+                        claimVersion: { type: integer, minimum: 1 }
+                        createdAt: { type: string, format: date-time }
+                        actorDisplayName: { type: string }
+                        actorRole: { type: string, enum: [member, reviewer] }
+        '401': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+  /__test/seed:
+    post:
+      operationId: seedCurrentRun
+      summary: Reapply the versioned seed in test mode only
+      security: [{ testControl: [] }]
+      responses:
+        '200': { description: Current run namespace was seeded }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+  /__test/reset:
+    post:
+      operationId: resetCurrentRun
+      summary: Reset only the server-configured run namespace in test mode
+      security: [{ testControl: [] }]
+      responses:
+        '200': { description: Current run namespace was reset and reseeded }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+    testControl:
+      type: apiKey
+      in: header
+      name: x-test-control-token
+  parameters:
+    PolicyId:
+      name: policyId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    ClaimId:
+      name: claimId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+  schemas:
+    User:
+      type: object
+      required: [id, role, displayName]
+      properties:
+        id: { type: string, format: uuid }
+        role: { type: string, enum: [member, reviewer] }
+        displayName: { type: string }
+    Policy:
+      type: object
+      required: [id, policyNumber, seedVersion]
+      properties:
+        id: { type: string, format: uuid }
+        policyNumber: { type: string }
+        seedVersion: { type: string }
+    Claim:
+      type: object
+      required: [id, policyId, status, amountMinor, currency, category, version, createdAt, updatedAt]
+      properties:
+        id: { type: string, format: uuid }
+        policyId: { type: string, format: uuid }
+        status: { type: string, enum: [submitted, under_review, approved, rejected] }
+        amountMinor: { type: integer, minimum: 1, maximum: 1000000 }
+        currency: { const: USD }
+        category: { type: string, enum: [auto, property_damage, theft] }
+        version: { type: integer, minimum: 1 }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message, correlationId]
+          properties:
+            code:
+              type: string
+              description: Stable machine-readable error identifier.
+              enum: [AUTHENTICATION_REQUIRED, SESSION_EXPIRED, UNKNOWN_IDENTITY, ROLE_FORBIDDEN, CONTROL_FORBIDDEN, NOT_READY, RESOURCE_NOT_FOUND, INVALID_JSON, VALIDATION_ERROR, INVALID_AMOUNT, INVALID_TRANSITION, VERSION_CONFLICT, REQUEST_TOO_LARGE, INTERNAL_ERROR, NOT_FOUND, METHOD_NOT_ALLOWED]
+            message: { type: string, description: Diagnostic text; not a compatibility key. }
+            correlationId: { type: string, format: uuid }
+  responses:
+    Error:
+      description: Stable error envelope; message text is diagnostic only
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }

@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="light">
+    <title>Quality Reference — Synthetic Claims</title>
+    <link rel="stylesheet" href="/styles.css">
+    <script type="module" src="/app.js"></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to main content</a>
+    <header class="site-header">
+      <p class="eyebrow">Synthetic reference application · fixture v0.1.0</p>
+      <h1>Policy and claims</h1>
+      <p>This local reference target uses fictional identities and data. It is not an insurance service.</p>
+    </header>
+    <main id="main" class="layout">
+      <section aria-labelledby="session-heading" class="panel">
+        <h2 id="session-heading">Synthetic session</h2>
+        <form id="session-form">
+          <label for="identity">Sign in as</label>
+          <select id="identity" name="identityKey" required>
+            <option value="member-a">Synthetic Member A</option>
+            <option value="member-b">Synthetic Member B</option>
+            <option value="reviewer">Synthetic Reviewer</option>
+          </select>
+          <button type="submit">Start session</button>
+        </form>
+        <p id="session-status" role="status" aria-live="polite">No session is active.</p>
+        <button id="sign-out" type="button" class="secondary" hidden>End session</button>
+      </section>
+
+      <section id="policy-section" aria-labelledby="policy-heading" class="panel" hidden>
+        <h2 id="policy-heading">Your policies</h2>
+        <ul id="policy-list" class="policy-list"></ul>
+      </section>
+
+      <section id="claim-form-section" aria-labelledby="claim-form-heading" class="panel" hidden>
+        <h2 id="claim-form-heading">Submit a fictional claim</h2>
+        <form id="claim-form">
+          <label for="policy">Policy</label>
+          <select id="policy" name="policyId" required></select>
+          <label for="amount">Requested amount (USD)</label>
+          <input id="amount" name="amount" type="number" min="0.01" max="10000.00" step="0.01" required>
+          <label for="category">Category</label>
+          <select id="category" name="category" required>
+            <option value="auto">Auto</option>
+            <option value="property_damage">Property damage</option>
+            <option value="theft">Theft</option>
+          </select>
+          <button type="submit">Submit claim</button>
+        </form>
+      </section>
+
+      <section id="claims-section" aria-labelledby="claims-heading" class="panel" hidden>
+        <h2 id="claims-heading">Claims</h2>
+        <p class="help-text">Claim amounts are fictional USD minor units. Status changes are recorded with an audit event and version.</p>
+        <div class="table-scroll">
+          <table>
+            <caption>Claims visible to the active synthetic identity</caption>
+            <thead>
+              <tr><th scope="col">Claim ID</th><th scope="col">Policy</th><th scope="col">Amount</th><th scope="col">Status</th><th scope="col">Version</th><th scope="col">Action</th></tr>
+            </thead>
+            <tbody id="claims-body"></tbody>
+          </table>
+        </div>
+      </section>
+      <p id="notice" role="status" aria-live="polite" class="notice"></p>
+      <p id="error" role="alert" class="error" hidden></p>
+    </main>
+    <footer><p>Reference target only. All identities, policies, and claims are synthetic.</p></footer>
+  </body>
+</html>

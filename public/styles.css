@@ -1,0 +1,44 @@
+:root {
+  color-scheme: light;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  color: #18212b;
+  background: #f4f7fa;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+}
+
+* { box-sizing: border-box; }
+body { margin: 0; min-width: 20rem; }
+.skip-link { position: absolute; left: 0.75rem; top: -5rem; padding: 0.75rem; background: #fff; color: #123; }
+.skip-link:focus { top: 0.75rem; z-index: 2; }
+.site-header { padding: 2rem max(1.25rem, calc((100vw - 70rem) / 2)); color: #fff; background: #183452; }
+.site-header h1 { margin: 0.2rem 0; font-size: clamp(1.8rem, 4vw, 2.8rem); }
+.site-header p { max-width: 52rem; }
+.eyebrow { color: #c8e2ff; font-size: 0.9rem; font-weight: 700; letter-spacing: 0.04em; }
+.layout { display: grid; gap: 1rem; max-width: 74rem; margin: 1.5rem auto; padding: 0 1rem; }
+.panel { padding: 1.25rem; border: 1px solid #c9d2dc; border-radius: 0.6rem; background: #fff; box-shadow: 0 0.2rem 0.6rem #172a3a0d; }
+.panel h2 { margin-top: 0; font-size: 1.3rem; }
+form { display: grid; gap: 0.65rem; max-width: 34rem; }
+label { font-weight: 650; }
+input, select, button { min-height: 2.75rem; border: 1px solid #7a8998; border-radius: 0.3rem; padding: 0.5rem 0.7rem; font: inherit; }
+button { width: fit-content; border-color: #174b7a; color: #fff; background: #174b7a; font-weight: 650; cursor: pointer; }
+button:hover { background: #103a60; }
+button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible { outline: 3px solid #f5a524; outline-offset: 2px; }
+button.secondary { margin-top: 0.5rem; color: #17334d; background: #fff; }
+.policy-list { padding-left: 1.2rem; }
+.table-scroll { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; text-align: left; }
+caption { padding: 0.4rem 0; text-align: left; color: #4a5c6d; }
+th, td { padding: 0.65rem; border-bottom: 1px solid #d9e0e7; vertical-align: top; }
+th { background: #edf3f8; }
+td:first-child { max-width: 14rem; overflow-wrap: anywhere; font-family: ui-monospace, monospace; font-size: 0.85rem; }
+td button { display: block; margin: 0.2rem 0; }
+.help-text, footer { color: #4c5b69; }
+.notice { color: #155724; }
+.error { padding: 0.8rem; border-left: 0.3rem solid #b42318; color: #8d1b13; background: #fff1f0; }
+footer { max-width: 74rem; margin: 0 auto 2rem; padding: 0 1rem; }
+
+@media (min-width: 60rem) {
+  .layout { grid-template-columns: 1fr 1fr; align-items: start; }
+  #claims-section, #notice, #error { grid-column: 1 / -1; }
+}

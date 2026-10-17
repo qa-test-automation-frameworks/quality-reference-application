@@ -1,0 +1,48 @@
+services:
+  db:
+    image: postgres:18.6-alpine3.23@sha256:885cf05d376c7cf27afef02073e6bdac3841252537f16e244fd1c1e6a7c99fb1
+    environment:
+      POSTGRES_DB: reference_app
+      POSTGRES_USER: reference_app
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD to a local-only synthetic value}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U reference_app -d reference_app"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks:
+      - app
+
+  app:
+    build: .
+    environment:
+      NODE_ENV: production
+      PORT: 4300
+      DATABASE_URL: postgres://reference_app:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD to a local-only synthetic value}@db:5432/reference_app
+      APP_NAMESPACE: ${APP_NAMESPACE:?Set a unique APP_NAMESPACE for this run}
+      APP_SOURCE_SHA: ${APP_SOURCE_SHA:-working-tree}
+      SEED_VERSION: v0.1.0
+      TEST_MODE: ${TEST_MODE:-true}
+      TEST_CONTROL_TOKEN: ${TEST_CONTROL_TOKEN:?Set TEST_CONTROL_TOKEN to a local-only random value}
+      SESSION_TTL_SECONDS: 3600
+    ports:
+      - "127.0.0.1:${APP_PORT:-4300}:4300"
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - app
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    security_opt:
+      - no-new-privileges:true
+
+networks:
+  app:
+    internal: true
+
+volumes:
+  postgres-data:
