@@ -1,3 +1,5 @@
+import { amountToMinorUnits } from './amount.js';
+
 const sessionForm = document.querySelector('#session-form');
 const claimForm = document.querySelector('#claim-form');
 const sessionStatus = document.querySelector('#session-status');
@@ -125,15 +127,15 @@ claimForm.addEventListener('submit', async (event) => {
   event.preventDefault();
   clearMessages();
   const form = new FormData(claimForm);
-  const amount = Number(form.get('amount'));
-  if (!Number.isFinite(amount) || Math.round(amount * 100) !== amount * 100) {
+  const amountMinor = amountToMinorUnits(String(form.get('amount') ?? ''));
+  if (amountMinor === null) {
     showError('Enter an amount with no more than two decimal places.');
     return;
   }
   try {
     await api('/api/v2/claims', {
       method: 'POST',
-      body: { policyId: form.get('policyId'), amountMinor: Math.round(amount * 100), currency: 'USD', category: form.get('category') },
+      body: { policyId: form.get('policyId'), amountMinor, currency: 'USD', category: form.get('category') },
     });
     claimForm.reset();
     notice.textContent = 'The claim was submitted and persisted.';
