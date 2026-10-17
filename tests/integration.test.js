@@ -56,6 +56,13 @@ async function login(identityKey, extra = {}) {
   return request('/api/v1/sessions', { method: 'POST', body: { identityKey, ...extra } });
 }
 
+test('serves the browser amount utility as a same-origin JavaScript module', async () => {
+  const response = await fetch(`${baseUrl}/amount.js`);
+  assert.equal(response.status, 200);
+  assert.match(response.headers.get('content-type'), /^text\/javascript/);
+  assert.match(await response.text(), /amountToMinorUnits/);
+});
+
 test('persisted claim journey enforces identity ownership, reviewer transitions, concurrency, and run isolation', async () => {
   const memberLogin = await login('member-a');
   assert.equal(memberLogin.response.status, 201);
