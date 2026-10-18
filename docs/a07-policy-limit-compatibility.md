@@ -66,14 +66,14 @@ The old immutable APP image remains the rollback target. Consumer source pins ar
 2. If a published `0.2.0` image must be withdrawn operationally, pin consumers back to the previously verified immutable image `ghcr.io/qa-test-automation-frameworks/quality-reference-application@sha256:284ae3fa4f2a31a4322b74a6f37e38f0d101879389c656bf1d553df7ec616469` (source `e9f438e06a2b092dccfc6e9ab1820ff2562ddad7`) and fixture `v0.1.0`.
 3. No database rollback is needed: the change does not alter schema or stored records. Re-run each consumer's setup, API, browser, and load checks after changing its pinned digest.
 
-The rollback target has now been exercised in isolation by Playwright's required
-`shared-app-rollback` job in [PR #59 run
-`39046808684`](https://github.com/qa-test-automation-frameworks/playwright-typescript-framework/actions/runs/39046808684).
-The job verified the old digest's source label and readiness identity, then
-accepted 1,000,000 cents and rejected 1,000,001 through API v1. Its summary is
+The rollback target was first exercised in [PR #59 run
+`39046808684`](https://github.com/qa-test-automation-frameworks/playwright-typescript-framework/actions/runs/39046808684),
+then merged in commit `ed2bfd08d79204d5de07ca6b5d8e6b97f678d745`. The required
+default-branch `shared-app-rollback` job passed in [main CI run
+`39090674631`](https://github.com/qa-test-automation-frameworks/playwright-typescript-framework/actions/runs/39090674631).
+It verified the old digest's source label and readiness identity, then accepted
+1,000,000 cents and rejected 1,000,001 through API v1. The main-run summary is
 available as the run's `shared-app-rollback-proof` artifact; SHA-256:
-`a75cde0a84f944fef19aefc4647d8a2b82b444f2c0d10e92fd9a53a637d59c3c`. PR #59
-is ready for review but unmerged, so the required rollback check is not yet in
-the default-branch gate.
+`2220f51a0f7ef56862ab33cb3dc844f1b7386b9585de83debad39766b1ce1e7a`.
 
-The prior image is a recovery target. The current immutable `0.2.0` digest from app source `e90067b` passed the post-merge Playwright run `39039485122`, including five of five shared-app UI cases and a 20-sample compatibility study; all nine trusted evidence scopes were published and checksum-validated by run `39039891632`. The dashboard deployment `39039999547` reports the consumer compatible with current code. Verity's assistant integration passes its isolated hosted test, while PR #31 remains draft pending independent review of the R02 security disposition. A07 remains open until A06 is closed, PR #59's rollback check is merged, and the complete compatibility/rollback story is reviewed against the final integration state.
+The prior image is a recovery target. The immutable `0.2.0` digest from app source `e90067b` passed the post-merge Playwright run `39039485122`, including five of five shared-app UI cases and a 20-sample compatibility study; all nine trusted evidence scopes were published and checksum-validated by run `39039891632`. The dashboard deployment `39039999547` reports that consumer revision as compatible with current code. App guide PR #4 merged as `49ee744`; its default-branch verification and image publication run `39090673927` passed verification, with publication still running at the latest check. This docs-only merge does not change the tested product behavior. Verity's assistant integration passes its isolated hosted test, while PR #31 remains draft pending independent review of the R02 security disposition. A07 remains open until A06 is closed and the compatibility/rollback story is reviewed against the final integration state.
