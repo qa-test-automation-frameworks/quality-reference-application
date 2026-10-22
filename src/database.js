@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import pg from 'pg';
+import { FIXTURE_VERSION } from './release-metadata.js';
 
 const { Pool } = pg;
 const directory = dirname(fileURLToPath(import.meta.url));
@@ -17,7 +18,7 @@ export const pool = new Pool({
   application_name: 'quality-reference-application',
 });
 
-export const SEED_VERSION = 'v0.1.0';
+export const SEED_VERSION = FIXTURE_VERSION;
 export const SEED = Object.freeze({
   members: [
     { id: '11111111-1111-4111-8111-111111111111', identityKey: 'member-a', displayName: 'Synthetic Member A' },

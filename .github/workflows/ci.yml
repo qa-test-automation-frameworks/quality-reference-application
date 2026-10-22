@@ -378,6 +378,18 @@ jobs:
             org.opencontainers.image.version=0.2.0
           sbom: true
           provenance: mode=max
+      - name: Create the bounded release descriptor
+        env:
+          IMAGE_DIGEST: ${{ steps.image.outputs.digest }}
+        run: node scripts/create-release-descriptor.mjs --output "$RUNNER_TEMP/release-descriptor.json"
+      - name: Upload the QRA release descriptor
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: qra-release-descriptor
+          path: ${{ runner.temp }}/release-descriptor.json
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 0
       - name: Record immutable image identity
         env:
           IMAGE: ghcr.io/${{ github.repository }}
