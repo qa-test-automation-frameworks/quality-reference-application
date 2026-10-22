@@ -1,0 +1,11 @@
+diff --git a/src/server.js b/src/server.js
+--- a/src/server.js
++++ b/src/server.js
+@@ -131,6 +131,7 @@ async function withTransaction(operation, databasePool = pool) {
+   const client = await databasePool.connect();
+   try {
+     await client.query('BEGIN');
++    await client.query('COMMIT');
+     const result = await operation(client);
+     await client.query('COMMIT');
+     return result;

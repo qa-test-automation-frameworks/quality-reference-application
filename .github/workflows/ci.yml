@@ -17,6 +17,7 @@ jobs:
       APP_PORT: '4300'
       APP_SOURCE_SHA: ${{ github.sha }}
       DATABASE_URL: postgres://reference_app:portfolio-ci-pass@127.0.0.1:5432/reference_app
+      Q2_POSTGRES_IMAGE: postgres:18.6-alpine3.23@sha256:885cf05d376c7cf27afef02073e6bdac3841252537f16e244fd1c1e6a7c99fb1
       POSTGRES_PASSWORD: portfolio-ci-pass
       TEST_MODE: 'true'
       TEST_CONTROL_TOKEN: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
@@ -46,6 +47,21 @@ jobs:
         run: npm ci
       - name: Verify runtime, OpenAPI, domain and PostgreSQL behavior
         run: npm run verify
+      - name: Capture named Q2 datastore outcomes
+        run: |
+          mkdir -p work/audit-2026-10-21/Q2/logs
+          set -o pipefail
+          node --test --test-concurrency=1 --test-name-pattern='same-version writers are actually queued|claim creation and transition roll back|expired sessions are rejected|readiness reports datastore loss|reset admission rejects active work' tests/integration.test.js 2>&1 | tee work/audit-2026-10-21/Q2/logs/hosted-focused-integration.log
+      - name: Check lock and transaction mutation controls
+        run: scripts/verify-datastore-mutations.sh
+      - name: Upload Q2 verification evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: q2-datastore-evidence-${{ github.run_id }}-${{ github.run_attempt }}
+          path: work/audit-2026-10-21/Q2/
+          if-no-files-found: ignore
+          retention-days: 30
       - name: Start isolated Docker Compose stack
         run: docker compose up --build --detach
       - name: Verify container readiness and claim journey

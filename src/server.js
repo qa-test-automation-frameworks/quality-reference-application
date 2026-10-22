@@ -89,12 +89,13 @@ function sendJson(res, status, body, correlationId) {
 }
 
 function errorEnvelope(error, correlationId) {
+  const applicationError = Number.isInteger(error.status) && typeof error.code === 'string';
   return {
-    status: error.status || 500,
+    status: applicationError ? error.status : 500,
     body: {
       error: {
-        code: error.code || 'INTERNAL_ERROR',
-        message: error.status ? error.message : 'The request could not be completed.',
+        code: applicationError ? error.code : 'INTERNAL_ERROR',
+        message: applicationError ? error.message : 'The request could not be completed.',
         correlationId,
       },
     },
@@ -107,11 +108,11 @@ function parse(schema, value) {
   return result.data;
 }
 
-async function currentIdentity(req) {
+async function currentIdentity(req, databasePool = pool) {
   const match = /^Bearer ([A-Za-z0-9_-]{40,100})$/.exec(req.headers.authorization || '');
   if (!match) throw httpError(401, 'AUTHENTICATION_REQUIRED', 'A valid synthetic session is required.');
   const digest = tokenDigest(match[1]);
-  const result = await pool.query(
+  const result = await databasePool.query(
     `SELECT i.id, i.identity_key AS "identityKey", i.role, i.display_name AS "displayName"
      FROM sessions s JOIN identities i ON i.namespace_id = s.namespace_id AND i.id = s.identity_id
      WHERE s.namespace_id = $1 AND s.token_hash = $2 AND s.expires_at > now()`,
@@ -121,14 +122,14 @@ async function currentIdentity(req) {
   return result.rows[0];
 }
 
-async function requireReviewer(req) {
-  const actor = await currentIdentity(req);
+async function requireReviewer(req, databasePool = pool) {
+  const actor = await currentIdentity(req, databasePool);
   if (actor.role !== 'reviewer') throw httpError(403, 'ROLE_FORBIDDEN', 'A reviewer session is required for this action.');
   return actor;
 }
 
-async function withTransaction(operation) {
-  const client = await pool.connect();
+async function withTransaction(operation, databasePool = pool) {
+  const client = await databasePool.connect();
   try {
     await client.query('BEGIN');
     const result = await operation(client);
@@ -156,7 +157,7 @@ function claimDto(row) {
   };
 }
 
-async function handleApi(req, res, url, correlationId) {
+async function handleApi(req, res, url, correlationId, { databasePool = pool, testHooks } = {}) {
   const method = req.method || 'GET';
   const path = url.pathname;
   const versionMatch = /^\/api\/v([12])(?=\/)/.exec(path);
@@ -166,7 +167,7 @@ async function handleApi(req, res, url, correlationId) {
     if (!ready) throw httpError(503, 'NOT_READY', 'Database migrations and fixture initialization have not completed.');
     let result;
     try {
-      result = await pool.query('SELECT 1 AS connected');
+      result = await databasePool.query('SELECT 1 AS connected');
     } catch {
       throw httpError(503, 'NOT_READY', 'The datastore is not currently available.');
     }
@@ -177,6 +178,7 @@ async function handleApi(req, res, url, correlationId) {
     if (!testMode) throw httpError(404, 'NOT_FOUND', 'The requested resource was not found.');
     if (req.headers['x-test-control-token'] !== controlToken) throw httpError(403, 'CONTROL_FORBIDDEN', 'A valid run-scoped control token is required.');
     if (method !== 'POST') throw httpError(405, 'METHOD_NOT_ALLOWED', 'This route accepts POST only.');
+    await testHooks?.beforeNamespaceControl?.({ operation: path.endsWith('/reset') ? 'reset' : 'seed', namespace });
     if (path === '/__test/reset') await resetNamespace(namespace);
     else await seedNamespace(namespace);
     return { status: 200, body: { namespace, seedVersion: 'v0.1.0', reset: path.endsWith('/reset') } };
@@ -185,7 +187,7 @@ async function handleApi(req, res, url, correlationId) {
   if (method === 'POST' && path === '/api/v1/sessions') {
     if (!testMode) throw httpError(404, 'NOT_FOUND', 'The requested resource was not found.');
     const input = parse(sessionSchema, await readJson(req));
-    const userResult = await pool.query(
+    const userResult = await databasePool.query(
       'SELECT id, role, display_name AS "displayName" FROM identities WHERE namespace_id = $1 AND identity_key = $2',
       [namespace, input.identityKey],
     );
@@ -193,16 +195,16 @@ async function handleApi(req, res, url, correlationId) {
     if (!user) throw httpError(401, 'UNKNOWN_IDENTITY', 'The synthetic identity is not seeded.');
     const token = randomBytes(32).toString('base64url');
     const expiresAt = new Date(Date.now() + sessionTtlSeconds * 1000);
-    await pool.query(
+    await databasePool.query(
       'INSERT INTO sessions(namespace_id, token_hash, identity_id, expires_at) VALUES ($1, $2, $3, $4)',
       [namespace, tokenDigest(token), user.id, expiresAt],
     );
     return { status: 201, body: { token, tokenType: 'Bearer', expiresAt: expiresAt.toISOString(), user: { id: user.id, role: user.role, displayName: user.displayName } } };
   }
 
-  const actor = await currentIdentity(req);
+  const actor = await currentIdentity(req, databasePool);
   if (method === 'GET' && routePath === '/api/v1/policies') {
-    const result = await pool.query(
+    const result = await databasePool.query(
       `SELECT p.id, p.policy_number AS "policyNumber", p.seed_version AS "seedVersion", p.owner_id AS "ownerId"
        FROM policies p WHERE p.namespace_id = $1 AND ($2::text = 'reviewer' OR p.owner_id = $3::uuid)
        ORDER BY p.policy_number`,
@@ -217,7 +219,7 @@ async function handleApi(req, res, url, correlationId) {
   const policyMatch = /^\/api\/v1\/policies\/([^/]+)$/.exec(routePath);
   if (method === 'GET' && policyMatch) {
     if (!uuid.safeParse(policyMatch[1]).success) throw httpError(404, 'RESOURCE_NOT_FOUND', 'The requested policy was not found.');
-    const result = await pool.query(
+    const result = await databasePool.query(
       `SELECT id, policy_number AS "policyNumber", seed_version AS "seedVersion"
        FROM policies WHERE namespace_id = $1 AND id = $2 AND (owner_id = $3 OR $4::text = 'reviewer')`,
       [namespace, policyMatch[1], actor.id, actor.role],
@@ -236,13 +238,13 @@ async function handleApi(req, res, url, correlationId) {
       input.amountMinor,
       apiVersion === '2' ? API_V2_CLAIM_LIMIT_MINOR : API_V1_CLAIM_LIMIT_MINOR,
     );
-    const policy = await pool.query(
+    const policy = await databasePool.query(
       'SELECT id FROM policies WHERE namespace_id = $1 AND id = $2 AND owner_id = $3',
       [namespace, input.policyId, actor.id],
     );
     if (!policy.rows[0]) throw httpError(404, 'RESOURCE_NOT_FOUND', 'The requested policy was not found.');
     const created = await withTransaction(async (client) => {
-      const id = randomUUID();
+      const id = testHooks?.newClaimId?.() || randomUUID();
       const inserted = await client.query(
         `INSERT INTO claims(namespace_id, id, policy_id, owner_id, status, amount_minor, currency, category)
          VALUES ($1, $2, $3, $4, 'submitted', $5, $6, $7)
@@ -256,12 +258,12 @@ async function handleApi(req, res, url, correlationId) {
         [namespace, id, actor.id],
       );
       return inserted.rows[0];
-    });
+    }, databasePool);
     return { status: 201, body: { claim: claimDto(created) } };
   }
 
   if (method === 'GET' && routePath === '/api/v1/claims') {
-    const result = await pool.query(
+    const result = await databasePool.query(
       `SELECT id, policy_id AS "policyId", status, amount_minor AS "amountMinor", currency, category, version,
               created_at AS "createdAt", updated_at AS "updatedAt"
        FROM claims WHERE namespace_id = $1 AND ($2::text = 'reviewer' OR owner_id = $3::uuid)
@@ -275,7 +277,7 @@ async function handleApi(req, res, url, correlationId) {
   if (claimMatch && method === 'GET') {
     const id = claimMatch[1];
     if (!uuid.safeParse(id).success) throw httpError(404, 'RESOURCE_NOT_FOUND', 'The requested claim was not found.');
-    const claimResult = await pool.query(
+    const claimResult = await databasePool.query(
       `SELECT id, policy_id AS "policyId", owner_id AS "ownerId", status, amount_minor AS "amountMinor", currency, category, version,
               created_at AS "createdAt", updated_at AS "updatedAt"
        FROM claims WHERE namespace_id = $1 AND id = $2`,
@@ -286,7 +288,7 @@ async function handleApi(req, res, url, correlationId) {
       throw httpError(404, 'RESOURCE_NOT_FOUND', 'The requested claim was not found.');
     }
     if (claimMatch[2] === 'events') {
-      const events = await pool.query(
+      const events = await databasePool.query(
         `SELECT e.from_status AS "fromStatus", e.to_status AS "toStatus", e.claim_version AS "claimVersion",
                 e.created_at AS "createdAt", i.display_name AS "actorDisplayName", i.role AS "actorRole"
          FROM claim_events e JOIN identities i ON i.namespace_id = e.namespace_id AND i.id = e.actor_id
@@ -301,7 +303,7 @@ async function handleApi(req, res, url, correlationId) {
 
   const transitionMatch = /^\/api\/v1\/claims\/([^/]+)$/.exec(routePath);
   if (method === 'PATCH' && transitionMatch) {
-    const reviewer = await requireReviewer(req);
+    const reviewer = await requireReviewer(req, databasePool);
     if (!uuid.safeParse(transitionMatch[1]).success) throw httpError(404, 'RESOURCE_NOT_FOUND', 'The requested claim was not found.');
     const input = parse(transitionSchema, await readJson(req));
     const updated = await withTransaction(async (client) => {
@@ -313,6 +315,7 @@ async function handleApi(req, res, url, correlationId) {
       );
       const claim = result.rows[0];
       if (!claim) throw httpError(404, 'RESOURCE_NOT_FOUND', 'The requested claim was not found.');
+      await testHooks?.afterClaimRowLock?.({ claimId: claim.id, status: claim.status, version: claim.version });
       if (claim.version !== input.expectedVersion) throw httpError(409, 'VERSION_CONFLICT', 'The claim changed since it was read; reload it before retrying.');
       assertTransition(claim.status, input.status);
       const changed = await client.query(
@@ -328,7 +331,7 @@ async function handleApi(req, res, url, correlationId) {
         [namespace, claim.id, reviewer.id, claim.status, input.status, changed.rows[0].version],
       );
       return changed.rows[0];
-    });
+    }, databasePool);
     return { status: 200, body: { claim: claimDto(updated) } };
   }
 
@@ -364,18 +367,43 @@ export async function initialize() {
   ready = true;
 }
 
-export function createServer() {
+export function createServer(options = {}) {
+  const { databasePool = pool, testHooks } = options;
+  if (!testMode && (Object.hasOwn(options, 'databasePool') || Object.hasOwn(options, 'testHooks'))) {
+    throw new Error('In-process server dependencies can only be injected when TEST_MODE=true.');
+  }
+  const activeTestHooks = testMode ? testHooks : undefined;
+  let activeNamespaceRequests = 0;
+  let resetInProgress = false;
   const server = createHttpServer(async (req, res) => {
     const startedAt = process.hrtime.bigint();
     const correlationId = randomUUID();
     let status = 500;
+    let releaseNamespaceAdmission;
+    let ownsResetAdmission = false;
     try {
       const url = new URL(req.url || '/', 'http://localhost');
       if (req.method === 'GET' && await staticResponse(url.pathname, res)) {
         status = 200;
         return;
       }
-      const result = await handleApi(req, res, url, correlationId);
+      const readinessRequest = req.method === 'GET' && url.pathname === '/health/ready';
+      const validControlRequest = testMode
+        && req.method === 'POST'
+        && ['/__test/seed', '/__test/reset'].includes(url.pathname)
+        && req.headers['x-test-control-token'] === controlToken;
+      if (!readinessRequest && validControlRequest) {
+        if (resetInProgress || activeNamespaceRequests > 0) {
+          throw httpError(409, 'RESET_BUSY', 'A namespace reset or seed cannot start while namespace activity is in progress.');
+        }
+        resetInProgress = true;
+        ownsResetAdmission = true;
+      } else if (!readinessRequest && url.pathname.startsWith('/api/')) {
+        if (resetInProgress) throw httpError(503, 'RESET_IN_PROGRESS', 'Namespace data is temporarily unavailable during reset.');
+        activeNamespaceRequests += 1;
+        releaseNamespaceAdmission = () => { activeNamespaceRequests -= 1; };
+      }
+      const result = await handleApi(req, res, url, correlationId, { databasePool, testHooks: activeTestHooks });
       status = result.status;
       sendJson(res, result.status, result.body, correlationId);
     } catch (error) {
@@ -387,6 +415,8 @@ export function createServer() {
       if (!res.headersSent) sendJson(res, envelope.status, envelope.body, correlationId);
       else res.destroy();
     } finally {
+      releaseNamespaceAdmission?.();
+      if (ownsResetAdmission) resetInProgress = false;
       const elapsedMs = Number(process.hrtime.bigint() - startedAt) / 1e6;
       process.stdout.write(`${JSON.stringify({ event: 'request-complete', correlationId, method: req.method, path: (req.url || '/').split('?')[0], status, durationMs: Math.round(elapsedMs * 100) / 100 })}\n`);
     }

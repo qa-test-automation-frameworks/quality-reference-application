@@ -10,6 +10,8 @@ This is a local reference target, not an insurance service. It makes no real cla
 - PostgreSQL `18.6` uses the official Alpine image pinned to digest `sha256:885cf05d376c7cf27afef02073e6bdac3841252537f16e244fd1c1e6a7c99fb1`.
 - Each run must use a unique `COMPOSE_PROJECT_NAME`, `APP_NAMESPACE`, `APP_PORT`, and random test-control token. Compose keeps PostgreSQL on an internal data network and a dedicated volume; the app also joins a bridge network with only its port published to host loopback at `127.0.0.1`.
 - Every data access includes the server-configured namespace. The reset route accepts no namespace in its request and deletes only the current run's records.
+- Reset admission coordinates requests inside one application process only. Run one application instance per `APP_NAMESPACE`; separate instances must use different namespace values.
+- Readiness recovery is checked with an injected query facade that fails and resumes `SELECT 1`; this does not claim recovery from an actual PostgreSQL process restart.
 - Synthetic session and seed/reset endpoints return 404 unless `TEST_MODE=true`. Test mode assigns role server-side from the seeded identity; clients cannot set or elevate roles. The session token is random, expires, and is stored only as a SHA-256 digest. This mechanism is a local test fixture, not production authentication.
 - `sourceRevision` is baked into the image at build time and included in readiness. The main-branch workflow publishes a multi-platform GitHub Container Registry image with SBOM/provenance and writes its immutable digest to the workflow summary. Consumer repositories pin that image digest and the fixture version; they do not follow a mutable tag or the app's default branch.
 
@@ -40,7 +42,7 @@ Run logs are structured JSON on stdout/stderr. Request bodies, authorization hea
 
 ## Contract and verification
 
-The API contract is [OpenAPI 3.1](openapi.yaml). API v1 preserves its 10,000 USD claim limit; additive API v2 caps claims at 5,000 USD and reports the limit with each policy. The browser UI uses v2 while existing v1 clients remain supported. Stable fields are status, error `code`, `correlationId`, IDs, claim state, version, and integer USD minor-unit amounts. Error `message` text is diagnostic and is not a compatibility key. The domain transition rules are independently tested in `tests/domain.test.js`; PostgreSQL-backed tests cover ownership, role assignment, audit persistence, optimistic version checks, namespace isolation, control-token enforcement, and test-mode route disabling.
+The API contract is [OpenAPI 3.1](openapi.yaml). API v1 preserves its 10,000 USD claim limit; additive API v2 caps claims at 5,000 USD and reports the limit with each policy. The browser UI uses v2 while existing v1 clients remain supported. Stable fields are status, error `code`, `correlationId`, IDs, claim state, version, and integer USD minor-unit amounts. Error `message` text is diagnostic and is not a compatibility key. The domain transition rules are independently tested in `tests/domain.test.js`; PostgreSQL-backed tests cover ownership, role assignment, audit persistence and rollback, same-version row-lock contention, optimistic version checks, session expiry, readiness recovery, namespace isolation and reset admission, control-token enforcement, and test-mode route disabling.
 
 ```bash
 npm run check:runtime
