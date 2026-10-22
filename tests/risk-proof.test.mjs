@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
   hashSourceTreeFiles,
+  nativeTestArguments,
   parseTapResults,
   RISK_CONTROLS,
 } from '../scripts/run-risk-proofs.mjs';
@@ -30,6 +31,22 @@ test('native TAP results preserve exact titles and distinguish skipped tests', (
     'failed',
   );
   assert.equal(results.get('removed detector'), 'skipped');
+});
+
+test('native risk controls request TAP output for the exact-result parser', () => {
+  assert.deepEqual(
+    nativeTestArguments([
+      'compatibility contract: API v1 accepts the published 10,000 USD claim limit',
+    ]),
+    [
+      '--test',
+      '--test-reporter=tap',
+      '--test-concurrency=1',
+      '--test-name-pattern',
+      '^(?:compatibility contract: API v1 accepts the published 10,000 USD claim limit)$',
+      'tests/integration.test.js',
+    ],
+  );
 });
 
 test('mutated target digest covers a deterministic, path-bound source tree', () => {
