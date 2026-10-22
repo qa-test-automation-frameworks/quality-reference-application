@@ -273,11 +273,18 @@ function normalizeTrivyTarget({ target, report, stepStatus, database, now }) {
     }
   }
   for (const result of report.Results) {
-    if (!isRecord(result) || !Object.hasOwn(result, 'Vulnerabilities')) {
+    if (!isRecord(result)) {
       errors.push(`Trivy result section is malformed for ${target.platform}.`);
       continue;
     }
-    const vulnerabilities = result.Vulnerabilities ?? [];
+    const hasVulnerabilities = Object.hasOwn(result, 'Vulnerabilities');
+    const hasEmptyPackageResult = ['os-pkgs', 'lang-pkgs'].includes(result.Class)
+      && Array.isArray(result.Packages);
+    if (!hasVulnerabilities && !hasEmptyPackageResult) {
+      errors.push(`Trivy result section is malformed for ${target.platform}.`);
+      continue;
+    }
+    const vulnerabilities = hasVulnerabilities ? result.Vulnerabilities ?? [] : [];
     if (!Array.isArray(vulnerabilities)) {
       errors.push(`Trivy vulnerability list is malformed for ${target.platform}.`);
       continue;

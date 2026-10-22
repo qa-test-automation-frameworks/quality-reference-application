@@ -276,6 +276,24 @@ test('Trivy image platform must match the requested operating system and archite
   assert.ok(result.errors.some((error) => error.includes('image platform does not match linux/amd64')));
 });
 
+test('an empty Trivy package result may omit its vulnerability list', () => {
+  const input = cleanInput();
+  for (const target of Object.values(input.target.platforms)) {
+    target.report.Results.push({ Target: 'Node.js', Class: 'lang-pkgs', Type: 'npm', Packages: [] });
+  }
+  const result = evaluateSecurityDisposition(input, now);
+  assert.equal(result.disposition, 'pass');
+  assert.deepEqual(result.findings, []);
+});
+
+test('a Trivy result without vulnerabilities or package metadata stays unavailable', () => {
+  const input = cleanInput();
+  input.target.platforms['linux/amd64'].report.Results.push({ Target: 'Node.js', Class: 'lang-pkgs' });
+  const result = evaluateSecurityDisposition(input, now);
+  assert.equal(result.disposition, 'unavailable');
+  assert.ok(result.errors.some((error) => error.includes('result section is malformed')));
+});
+
 test('a truncated npm report or mismatched npm exit code is unavailable, not clean', () => {
   const truncated = cleanInput();
   truncated.npmReport = { readError: 'Unexpected end of JSON input' };
