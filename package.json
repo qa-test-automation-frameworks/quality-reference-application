@@ -13,8 +13,9 @@
   "scripts": {
     "check:runtime": "node scripts/check-runtime.js",
     "start": "node src/server.js",
-    "test:unit": "node tests/domain.test.js && npm run test:security-disposition",
+    "test:unit": "node tests/domain.test.js && npm run test:security-disposition && npm run test:risk-proofs",
     "test:security-disposition": "node tests/security-disposition.test.js",
+    "test:risk-proofs": "node --test tests/risk-proof.test.mjs",
     "test:integration": "node --test tests/integration.test.js",
     "test": "npm run check:runtime && npm run test:unit && npm run test:integration",
     "db:migrate": "node scripts/migrate.js",
