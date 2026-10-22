@@ -154,7 +154,7 @@ test('persisted claim journey enforces identity ownership, reviewer transitions,
 
   const policyList = await request('/api/v1/policies', { token: memberA });
   assert.equal(policyList.response.status, 200);
-  assert.equal(policyList.payload.items.length, 1);
+  assert.equal(policyList.payload.items.length, 1, 'member policy list must be identity-scoped');
   const policyId = policyList.payload.items[0].id;
 
   const forgedRole = await login('member-a', { role: 'reviewer' });
@@ -167,7 +167,7 @@ test('persisted claim journey enforces identity ownership, reviewer transitions,
   const memberBLogin = await login('member-b');
   const memberB = memberBLogin.payload.token;
   const hiddenPolicy = await request(`/api/v1/policies/${policyId}`, { token: memberB });
-  assert.equal(hiddenPolicy.response.status, 404);
+  assert.equal(hiddenPolicy.response.status, 404, 'foreign policy reads must be hidden');
 
   const created = await request('/api/v1/claims', {
     method: 'POST', token: memberA,
@@ -179,7 +179,7 @@ test('persisted claim journey enforces identity ownership, reviewer transitions,
   const claimId = created.payload.claim.id;
 
   const foreignClaim = await request(`/api/v1/claims/${claimId}`, { token: memberB });
-  assert.equal(foreignClaim.response.status, 404);
+  assert.equal(foreignClaim.response.status, 404, 'foreign claim reads must be hidden');
   const memberPatch = await request(`/api/v1/claims/${claimId}`, {
     method: 'PATCH', token: memberA, body: { status: 'approved', expectedVersion: 1 },
   });
@@ -196,7 +196,7 @@ test('persisted claim journey enforces identity ownership, reviewer transitions,
   const staleUpdate = await request(`/api/v1/claims/${claimId}`, {
     method: 'PATCH', token: reviewer, body: { status: 'approved', expectedVersion: 1 },
   });
-  assert.equal(staleUpdate.response.status, 409);
+  assert.equal(staleUpdate.response.status, 409, 'stale versions must return a conflict');
   assert.equal(staleUpdate.payload.error.code, 'VERSION_CONFLICT');
   const approve = await request(`/api/v1/claims/${claimId}`, {
     method: 'PATCH', token: reviewer, body: { status: 'approved', expectedVersion: 2 },
@@ -256,7 +256,7 @@ test('API v2 caps claims at 5,000 USD while API v1 keeps its 10,000 USD contract
   const member = memberLogin.payload.token;
   const policies = await request('/api/v2/policies', { token: member });
   assert.equal(policies.response.status, 200);
-  assert.equal(policies.payload.items[0].claimAmountLimitMinor, 500_000);
+  assert.equal(policies.payload.items[0].claimAmountLimitMinor, 500_000, 'API v2 must publish the 5,000 USD limit');
   const policyId = policies.payload.items[0].id;
 
   const atLimit = await request('/api/v2/claims', {

@@ -22,6 +22,7 @@ export const RISK_CONTROLS = [
     ],
     detectingTestId:
       'persisted claim journey enforces identity ownership, reviewer transitions, concurrency, and run isolation',
+    expectedFailureMessage: 'member policy list must be identity-scoped',
     controlledFaultConfig: 'allow every seeded member to list every policy',
   },
   {
@@ -35,6 +36,7 @@ export const RISK_CONTROLS = [
     ],
     detectingTestId:
       'persisted claim journey enforces identity ownership, reviewer transitions, concurrency, and run isolation',
+    expectedFailureMessage: 'stale versions must return a conflict',
     controlledFaultConfig:
       'disable the stale expectedVersion conflict predicate',
   },
@@ -53,6 +55,7 @@ export const RISK_CONTROLS = [
     ],
     detectingTestId:
       'API v2 caps claims at 5,000 USD while API v1 keeps its 10,000 USD contract',
+    expectedFailureMessage: 'API v2 must publish the 5,000 USD limit',
     controlledFaultConfig: 'raise the API v2 claim limit to the API v1 limit',
   },
 ];
@@ -387,6 +390,10 @@ export async function createRiskProofBundle({
     requireValue(
       proof.outcome === 'detected',
       `Fault control ${control.controlId} was not detected by its native test.`,
+    );
+    requireValue(
+      mutated.output.includes(control.expectedFailureMessage),
+      `Fault control ${control.controlId} did not fail at its named business-risk assertion.`,
     );
   }
 
