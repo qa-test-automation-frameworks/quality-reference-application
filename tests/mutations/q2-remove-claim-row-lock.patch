@@ -1,0 +1,11 @@
+diff --git a/src/server.js b/src/server.js
+--- a/src/server.js
++++ b/src/server.js
+@@ -311,6 +311,6 @@ async function handleApi(req, res, url, correlationId, { databasePool = pool, testHooks } = {}) {
+       const result = await client.query(
+         `SELECT id, policy_id AS "policyId", status, amount_minor AS "amountMinor", currency, category, version,
+                 created_at AS "createdAt", updated_at AS "updatedAt"
+-         FROM claims WHERE namespace_id = $1 AND id = $2 FOR UPDATE`,
++         FROM claims WHERE namespace_id = $1 AND id = $2`,
+         [namespace, transitionMatch[1]],
+       );
