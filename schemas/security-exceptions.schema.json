@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://qa-test-automation-frameworks.github.io/quality-reference-application/schemas/security-exceptions.schema.json",
+  "title": "QRA exact-image security exceptions",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "exceptions"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "exceptions": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/exception" }
+    }
+  },
+  "$defs": {
+    "exception": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "scanner",
+        "advisoryId",
+        "componentPurl",
+        "affectedVersion",
+        "imageDigest",
+        "owner",
+        "rationaleAndExposure",
+        "compensatingControl",
+        "approvedBy",
+        "approvedAt",
+        "reviewedAt",
+        "expiresAt",
+        "evidenceUrl"
+      ],
+      "properties": {
+        "scanner": { "enum": ["npm-audit", "trivy"] },
+        "advisoryId": { "type": "string", "minLength": 1, "pattern": "^[^*?]+$" },
+        "componentPurl": { "type": "string", "minLength": 5, "pattern": "^pkg:[a-zA-Z][a-zA-Z0-9.+-]*/[^?#*\\s]+(?:\\?[^#*\\s]+)?(?:#\\S+)?$" },
+        "affectedVersion": { "type": "string", "minLength": 1, "pattern": "^[^*?^~<>=,|\\s]+$" },
+        "imageDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+        "owner": { "type": "string", "minLength": 1 },
+        "rationaleAndExposure": { "type": "string", "minLength": 1 },
+        "compensatingControl": { "type": "string", "minLength": 1 },
+        "approvedBy": { "type": "string", "minLength": 1 },
+        "approvedAt": { "type": "string", "format": "date-time" },
+        "reviewedAt": { "type": "string", "format": "date-time" },
+        "expiresAt": { "type": "string", "format": "date-time" },
+        "evidenceUrl": { "type": "string", "format": "uri", "pattern": "^https://" }
+      }
+    }
+  }
+}

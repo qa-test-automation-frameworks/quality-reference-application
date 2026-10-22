@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- Keyboard-complete claim journeys with focus restoration after session changes, claim creation, and reviewer actions.
+- A scheduled and pull-request advisory disposition for production npm dependencies and both published Linux image architectures.
+- Exact-image security exception records that require an owner, human approval, expiry, and evidence URL.
+
 ## 0.2.0 — 2026-10-22
 
 Published as [GitHub release `v0.2.0`](https://github.com/qa-test-automation-frameworks/quality-reference-application/releases/tag/v0.2.0) from source [`e005b4415865c4029857a1066adf9b0f2474298e`](https://github.com/qa-test-automation-frameworks/quality-reference-application/commit/e005b4415865c4029857a1066adf9b0f2474298e). The immutable image digest, build receipt, and consumer evidence are in [Target identity](docs/target-identity.md).

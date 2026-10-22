@@ -5,7 +5,11 @@ ENV NODE_ENV=production
 ENV APP_SOURCE_SHA=${APP_SOURCE_SHA}
 WORKDIR /app
 COPY package.json package-lock.json ./
-RUN npm install --global npm@10.9.4 && npm ci --omit=dev && npm cache clean --force
+RUN npm install --global npm@10.9.4 \
+  && npm ci --omit=dev \
+  && npm cache clean --force \
+  && rm -rf /usr/local/lib/node_modules/npm node_modules/npm \
+  && rm -f /usr/local/bin/npm /usr/local/bin/npx package.json package-lock.json
 COPY src ./src
 COPY migrations ./migrations
 COPY public ./public
