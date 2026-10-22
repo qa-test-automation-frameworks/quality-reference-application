@@ -1,15 +1,32 @@
-import assert from 'node:assert/strict';
+import path from 'node:path';
 import { readFile } from 'node:fs/promises';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { checkOpenApiDocument, parseOpenApiDocument } from './openapi-contract.js';
 
-const document = await readFile(new URL('../openapi.yaml', import.meta.url), 'utf8');
-assert.match(document, /^openapi: 3\.1\.0$/m);
-for (const operation of [
-  '/health/ready:', '/api/v1/sessions:', '/api/v1/policies:', '/api/v1/policies/{policyId}:',
-  '/api/v1/claims:', '/api/v1/claims/{claimId}:', '/api/v1/claims/{claimId}/events:', '/__test/reset:',
-  '/api/v2/policies:', '/api/v2/policies/{policyId}:', '/api/v2/claims:',
-  '/api/v2/claims/{claimId}:', '/api/v2/claims/{claimId}/events:',
-]) assert.ok(document.includes(operation), `OpenAPI path missing: ${operation}`);
-for (const stableContract of ['correlationId:', 'INVALID_TRANSITION', 'VERSION_CONFLICT', 'additionalProperties: false', 'expectedVersion:', 'maximum: 1000000', 'maximum: 500000']) {
-  assert.ok(document.includes(stableContract), `OpenAPI behavior missing: ${stableContract}`);
+const projectRoot = fileURLToPath(new URL('../', import.meta.url));
+const redoclyCli = `${projectRoot}node_modules/@redocly/cli/bin/cli.js`;
+const redoclyConfig = `${projectRoot}redocly.yaml`;
+
+export async function checkOpenApiFile(specPath = `${projectRoot}openapi.yaml`, { lint = true } = {}) {
+  const source = await readFile(specPath, 'utf8');
+  const document = parseOpenApiDocument(source, specPath);
+  checkOpenApiDocument(document);
+
+  if (lint) {
+    // Redocly currently exposes its CLI as a bundled executable rather than a
+    // stable programmatic API. Run that bundle in-process after our no-network
+    // reference preflight has completed.
+    process.argv = [process.execPath, redoclyCli, 'lint', specPath, '--config', redoclyConfig];
+    await import(pathToFileURL(redoclyCli).href);
+  }
+  return document;
 }
-console.log('OpenAPI 3.1 contract contains v1 and v2 operations, versioned amount limits, and stable error/version fields.');
+
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  try {
+    await checkOpenApiFile(process.argv[2]);
+  } catch (error) {
+    process.stderr.write(`${error.message}\n`);
+    process.exitCode = 1;
+  }
+}
