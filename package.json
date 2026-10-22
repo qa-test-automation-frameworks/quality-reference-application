@@ -1,6 +1,7 @@
 {
   "name": "quality-reference-application",
   "version": "0.2.0",
+  "license": "MIT",
   "private": true,
   "description": "A small synthetic policy and claims reference application for independent QA framework exercises.",
   "type": "module",
