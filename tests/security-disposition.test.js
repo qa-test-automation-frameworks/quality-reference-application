@@ -282,7 +282,7 @@ test('an empty Trivy package result may omit its vulnerability list', () => {
     target.report.Results.push({ Target: 'Node.js', Class: 'lang-pkgs', Type: 'npm', Packages: [] });
   }
   const result = evaluateSecurityDisposition(input, now);
-  assert.equal(result.disposition, 'pass');
+  assert.equal(result.disposition, 'pass-no-findings');
   assert.deepEqual(result.findings, []);
 });
 
