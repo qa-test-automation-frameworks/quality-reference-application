@@ -9,6 +9,8 @@ Published as [GitHub release `v0.2.0`](https://github.com/qa-test-automation-fra
 - API v2 with a policy-advertised 500,000-cent claim limit while preserving the v1 1,000,000-cent limit.
 - A first-party browser flow that reads the v2 limit and converts decimal amounts to integer cents.
 - PostgreSQL-backed checks for row-lock contention, atomic audit writes, session expiry, readiness recovery, and in-process namespace reset admission.
+- A scheduled and pull-request advisory disposition for production npm dependencies and both published Linux image architectures.
+- Exact-image security exception records that require an owner, human approval, expiry, and evidence URL.
 
 ### Compatibility
 

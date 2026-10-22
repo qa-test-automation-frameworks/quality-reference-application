@@ -5,12 +5,249 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+    inputs:
+      source_sha:
+        description: Full source SHA for a published target; defaults to main.
+        required: false
+        type: string
+      image_ref:
+        description: Exact QRA source-tagged or digest reference; defaults to the source-tagged image.
+        required: false
+        type: string
+  schedule:
+    - cron: '17 5 1 * *'
 
 permissions:
   contents: read
 
 jobs:
+  security-advisory:
+    name: Security advisory disposition
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || (github.event_name == 'push' && github.sha) || inputs.source_sha || 'main' }}
+          persist-credentials: false
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - name: Install pinned npm
+        run: npm install --global npm@10.9.4
+      - name: Check security disposition policy fixtures
+        run: npm run test:security-disposition
+      - name: Start the production lockfile audit
+        id: npm_audit
+        continue-on-error: true
+        run: |
+          set -eu
+          mkdir -p work/audit-2026-10-21/Q4/security
+          out=work/audit-2026-10-21/Q4/security
+          date -u +%Y-%m-%dT%H:%M:%SZ > "$out/npm-started-at.txt"
+          npm --version > "$out/npm-version.txt"
+          npm config get registry > "$out/npm-registry.txt"
+          set +e
+          npm audit --omit=dev --audit-level=low --json > "$out/npm-audit.json" 2> "$out/npm-audit.stderr"
+          result=$?
+          set -e
+          date -u +%Y-%m-%dT%H:%M:%SZ > "$out/npm-completed-at.txt"
+          printf '%s\n' "$result" > "$out/npm-exit-code.txt"
+          printf 'exit_code=%s\n' "$result" >> "$GITHUB_OUTPUT"
+      - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+        if: github.event_name == 'pull_request' || github.event_name == 'push'
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Prepare exact image targets
+        id: targets
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          SOURCE_SHA_INPUT: ${{ inputs.source_sha }}
+          IMAGE_REF_INPUT: ${{ inputs.image_ref }}
+        run: |
+          set -euo pipefail
+          source_sha="$(git rev-parse HEAD)"
+          if [[ -n "$SOURCE_SHA_INPUT" && ! "$SOURCE_SHA_INPUT" =~ ^[a-f0-9]{40}$ ]]; then
+            echo 'The source_sha input must be a full Git SHA.' >&2
+            exit 1
+          fi
+          if [[ -n "$SOURCE_SHA_INPUT" && "$source_sha" != "$SOURCE_SHA_INPUT" ]]; then
+            echo 'The checked-out source does not match the requested source SHA.' >&2
+            exit 1
+          fi
+          if [[ ! "$source_sha" =~ ^[a-f0-9]{40}$ ]]; then
+            echo 'Source checkout is not pinned to a full commit SHA.' >&2
+            exit 1
+          fi
+          echo "source_sha=$source_sha" >> "$GITHUB_OUTPUT"
+          mkdir -p work/audit-2026-10-21/Q4/security
+          if [[ "$EVENT_NAME" == 'pull_request' || "$EVENT_NAME" == 'push' ]]; then
+            docker buildx build --platform linux/amd64 --load --tag qra-security:amd64 --build-arg "APP_SOURCE_SHA=$source_sha" .
+            docker buildx build --platform linux/arm64 --load --tag qra-security:arm64 --build-arg "APP_SOURCE_SHA=$source_sha" .
+            echo 'mode=candidate' >> "$GITHUB_OUTPUT"
+            echo 'image_index_digest=' >> "$GITHUB_OUTPUT"
+            echo 'image_amd64=qra-security:amd64' >> "$GITHUB_OUTPUT"
+            echo 'digest_amd64=' >> "$GITHUB_OUTPUT"
+            echo 'image_arm64=qra-security:arm64' >> "$GITHUB_OUTPUT"
+            echo 'digest_arm64=' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          image_ref="$IMAGE_REF_INPUT"
+          if [[ -z "$image_ref" ]]; then
+            image_ref="ghcr.io/${GITHUB_REPOSITORY}:sha-${source_sha}"
+          fi
+          if [[ ! "$image_ref" =~ ^ghcr\.io/qa-test-automation-frameworks/quality-reference-application(:sha-[a-f0-9]{40}|@sha256:[a-f0-9]{64})$ ]]; then
+            echo 'The image reference must be an exact QRA source tag or sha256 digest.' >&2
+            exit 1
+          fi
+          tagged_sha="$(printf '%s\n' "$image_ref" | sed -n 's|^.*:sha-||p')"
+          if [[ -n "$tagged_sha" && "$tagged_sha" != "$source_sha" ]]; then
+            echo 'The source-tagged image SHA does not match the checked-out source.' >&2
+            exit 1
+          fi
+          if [[ -z "$tagged_sha" && -z "$SOURCE_SHA_INPUT" ]]; then
+            echo 'A digest image_ref requires an explicit source_sha input.' >&2
+            exit 1
+          fi
+          docker buildx imagetools inspect "$image_ref" > work/audit-2026-10-21/Q4/security/image-inspect.txt
+          index_digest="$(awk '$1 == "Digest:" { print $2; exit }' work/audit-2026-10-21/Q4/security/image-inspect.txt)"
+          if [[ ! "$index_digest" =~ ^sha256:[a-f0-9]{64}$ ]]; then
+            echo 'The published image index digest is missing or malformed.' >&2
+            exit 1
+          fi
+          docker buildx imagetools inspect --raw "$image_ref" > work/audit-2026-10-21/Q4/security/image-index.json
+          amd64_digest="$(jq -er '[.manifests[] | select(.platform.os == "linux" and .platform.architecture == "amd64") | .digest] | if length == 1 then .[0] else error("expected exactly one linux/amd64 manifest") end' work/audit-2026-10-21/Q4/security/image-index.json)"
+          arm64_digest="$(jq -er '[.manifests[] | select(.platform.os == "linux" and .platform.architecture == "arm64") | .digest] | if length == 1 then .[0] else error("expected exactly one linux/arm64 manifest") end' work/audit-2026-10-21/Q4/security/image-index.json)"
+          for arch in amd64 arm64; do
+            digest="$amd64_digest"
+            if [[ "$arch" == arm64 ]]; then digest="$arm64_digest"; fi
+            image="ghcr.io/$GITHUB_REPOSITORY@$digest"
+            docker pull --platform "linux/$arch" "$image"
+            image_source_sha="$(docker image inspect "$image" --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')"
+            if [[ "$image_source_sha" != "$source_sha" ]]; then
+              echo "The linux/$arch image revision label does not match source_sha." >&2
+              exit 1
+            fi
+          done
+          echo 'mode=published' >> "$GITHUB_OUTPUT"
+          echo "image_index_digest=$index_digest" >> "$GITHUB_OUTPUT"
+          echo "image_amd64=ghcr.io/${GITHUB_REPOSITORY}@${amd64_digest}" >> "$GITHUB_OUTPUT"
+          echo "digest_amd64=$amd64_digest" >> "$GITHUB_OUTPUT"
+          echo "image_arm64=ghcr.io/${GITHUB_REPOSITORY}@${arm64_digest}" >> "$GITHUB_OUTPUT"
+          echo "digest_arm64=$arm64_digest" >> "$GITHUB_OUTPUT"
+      - name: Scan the linux/amd64 image with Trivy
+        id: trivy_amd64
+        if: ${{ always() && steps.targets.outputs.image_amd64 != '' }}
+        continue-on-error: true
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          version: v0.76.0
+          image-ref: ${{ steps.targets.outputs.image_amd64 }}
+          scanners: vuln
+          vuln-type: os,library
+          severity: UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL
+          format: json
+          output: work/audit-2026-10-21/Q4/security/trivy-linux-amd64.json
+          exit-code: '0'
+      - name: Scan the linux/arm64 image with Trivy
+        id: trivy_arm64
+        if: ${{ always() && steps.targets.outputs.image_arm64 != '' }}
+        continue-on-error: true
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          version: v0.76.0
+          image-ref: ${{ steps.targets.outputs.image_arm64 }}
+          scanners: vuln
+          vuln-type: os,library
+          severity: UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL
+          format: json
+          output: work/audit-2026-10-21/Q4/security/trivy-linux-arm64.json
+          exit-code: '0'
+      - name: Record Trivy tool and database metadata
+        if: always()
+        continue-on-error: true
+        run: |
+          mkdir -p work/audit-2026-10-21/Q4/security
+          if command -v trivy >/dev/null 2>&1; then
+            trivy version --format json > work/audit-2026-10-21/Q4/security/trivy-version.json
+          else
+            printf '{}\n' > work/audit-2026-10-21/Q4/security/trivy-version.json
+          fi
+      - name: Assemble scanner input manifest
+        if: always()
+        env:
+          SOURCE_SHA: ${{ steps.targets.outputs.source_sha }}
+          MODE: ${{ steps.targets.outputs.mode }}
+          IMAGE_INDEX_DIGEST: ${{ steps.targets.outputs.image_index_digest }}
+          IMAGE_AMD64: ${{ steps.targets.outputs.image_amd64 }}
+          DIGEST_AMD64: ${{ steps.targets.outputs.digest_amd64 }}
+          STATUS_AMD64: ${{ steps.trivy_amd64.outcome }}
+          IMAGE_ARM64: ${{ steps.targets.outputs.image_arm64 }}
+          DIGEST_ARM64: ${{ steps.targets.outputs.digest_arm64 }}
+          STATUS_ARM64: ${{ steps.trivy_arm64.outcome }}
+          NPM_STATUS: ${{ steps.npm_audit.outcome }}
+          NPM_EXIT_CODE: ${{ steps.npm_audit.outputs.exit_code }}
+        run: |
+          node --input-type=module <<'NODE'
+          import { readFileSync, writeFileSync } from 'node:fs';
+          const read = (name) => { try { return readFileSync(name, 'utf8').trim(); } catch { return ''; } };
+          const root = 'work/audit-2026-10-21/Q4/security/';
+          const manifest = {
+            sourceSha: process.env.SOURCE_SHA,
+            target: {
+              mode: process.env.MODE,
+              imageIndexDigest: process.env.IMAGE_INDEX_DIGEST || null,
+              platforms: {
+                'linux/amd64': { imageRef: process.env.IMAGE_AMD64 || '', manifestDigest: process.env.DIGEST_AMD64 || null, stepStatus: process.env.STATUS_AMD64 || 'missing', reportPath: `${root}trivy-linux-amd64.json` },
+                'linux/arm64': { imageRef: process.env.IMAGE_ARM64 || '', manifestDigest: process.env.DIGEST_ARM64 || null, stepStatus: process.env.STATUS_ARM64 || 'missing', reportPath: `${root}trivy-linux-arm64.json` },
+              },
+            },
+            npm: {
+              stepStatus: process.env.NPM_STATUS || 'missing',
+              exitCode: process.env.NPM_EXIT_CODE === '' ? null : Number(process.env.NPM_EXIT_CODE),
+              startedAt: read(`${root}npm-started-at.txt`),
+              completedAt: read(`${root}npm-completed-at.txt`),
+              npmVersion: read(`${root}npm-version.txt`),
+              registry: read(`${root}npm-registry.txt`),
+              reportPath: `${root}npm-audit.json`,
+            },
+            packageLockPath: 'package-lock.json',
+            exceptionsPath: 'docs/security-exceptions.json',
+            trivy: { versionPath: `${root}trivy-version.json` },
+          };
+          writeFileSync(`${root}scan-inputs.json`, `${JSON.stringify(manifest, null, 2)}\n`);
+          NODE
+      - name: Evaluate scanner reports and exact-image exceptions
+        if: always()
+        run: node scripts/security-disposition.mjs work/audit-2026-10-21/Q4/security/scan-inputs.json work/audit-2026-10-21/Q4/security/disposition-summary.json
+      - name: Add advisory disposition to the run summary
+        if: always()
+        run: |
+          if test -s work/audit-2026-10-21/Q4/security/disposition-summary.json; then
+            cat work/audit-2026-10-21/Q4/security/disposition-summary.json >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Retain raw advisory, database, and disposition evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: q4-security-advisory-${{ github.run_id }}-${{ github.run_attempt }}
+          path: work/audit-2026-10-21/Q4/security/
+          if-no-files-found: warn
+          retention-days: 90
+
   verify:
+    if: always() && (github.event_name == 'push' || github.event_name == 'pull_request')
+    needs: security-advisory
     runs-on: ubuntu-latest
     env:
       APP_NAMESPACE: quality-reference-ci
@@ -36,6 +273,11 @@ jobs:
           --health-timeout 2s
           --health-retries 30
     steps:
+      - name: Fail the required verify check when the advisory gate fails
+        if: needs.security-advisory.result != 'success'
+        run: |
+          echo 'The required advisory disposition did not pass.' >&2
+          exit 1
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
         with:
@@ -87,6 +329,8 @@ jobs:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: verify
     runs-on: ubuntu-latest
+    outputs:
+      image_digest: ${{ steps.image.outputs.digest }}
     permissions:
       contents: read
       packages: write
@@ -121,9 +365,188 @@ jobs:
           SOURCE_SHA: ${{ github.sha }}
         run: |
           {
-            echo '### Published reference image'
+            echo '### Published candidate reference image'
             echo "- Source: \`${SOURCE_SHA}\`"
             echo "- Immutable image: \`${IMAGE}@${DIGEST}\`"
             echo '- Platforms: linux/amd64, linux/arm64'
             echo '- SBOM and provenance attestations: enabled'
+            echo '- This source-tagged image is awaiting its exact-digest security disposition.'
           } >> "$GITHUB_STEP_SUMMARY"
+
+  published-advisory:
+    name: Published image advisory disposition
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - name: Install pinned npm
+        run: npm install --global npm@10.9.4
+      - name: Start the production lockfile audit
+        id: npm_audit
+        continue-on-error: true
+        run: |
+          set -eu
+          mkdir -p work/audit-2026-10-21/Q4/security-published
+          out=work/audit-2026-10-21/Q4/security-published
+          date -u +%Y-%m-%dT%H:%M:%SZ > "$out/npm-started-at.txt"
+          npm --version > "$out/npm-version.txt"
+          npm config get registry > "$out/npm-registry.txt"
+          set +e
+          npm audit --omit=dev --audit-level=low --json > "$out/npm-audit.json" 2> "$out/npm-audit.stderr"
+          result=$?
+          set -e
+          date -u +%Y-%m-%dT%H:%M:%SZ > "$out/npm-completed-at.txt"
+          printf '%s\n' "$result" > "$out/npm-exit-code.txt"
+          printf 'exit_code=%s\n' "$result" >> "$GITHUB_OUTPUT"
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Resolve the exact published image manifests
+        id: targets
+        env:
+          SOURCE_SHA: ${{ github.sha }}
+          PUBLISHED_DIGEST: ${{ needs.publish.outputs.image_digest }}
+        run: |
+          set -euo pipefail
+          out=work/audit-2026-10-21/Q4/security-published
+          mkdir -p "$out"
+          image_ref="ghcr.io/${GITHUB_REPOSITORY}@${PUBLISHED_DIGEST}"
+          docker buildx imagetools inspect "$image_ref" > "$out/image-inspect.txt"
+          index_digest="$(awk '$1 == "Digest:" { print $2; exit }' "$out/image-inspect.txt")"
+          if [[ "$index_digest" != "$PUBLISHED_DIGEST" || ! "$index_digest" =~ ^sha256:[a-f0-9]{64}$ ]]; then
+            echo 'Published image digest did not match the publisher output.' >&2
+            exit 1
+          fi
+          docker buildx imagetools inspect --raw "$image_ref" > "$out/image-index.json"
+          amd64_digest="$(jq -er '[.manifests[] | select(.platform.os == "linux" and .platform.architecture == "amd64") | .digest] | if length == 1 then .[0] else error("expected exactly one linux/amd64 manifest") end' "$out/image-index.json")"
+          arm64_digest="$(jq -er '[.manifests[] | select(.platform.os == "linux" and .platform.architecture == "arm64") | .digest] | if length == 1 then .[0] else error("expected exactly one linux/arm64 manifest") end' "$out/image-index.json")"
+          for arch in amd64 arm64; do
+            digest="$amd64_digest"
+            if [[ "$arch" == arm64 ]]; then digest="$arm64_digest"; fi
+            image="ghcr.io/$GITHUB_REPOSITORY@$digest"
+            docker pull --platform "linux/$arch" "$image"
+            image_source_sha="$(docker image inspect "$image" --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')"
+            if [[ "$image_source_sha" != "$SOURCE_SHA" ]]; then
+              echo "The published linux/$arch image revision label does not match the source SHA." >&2
+              exit 1
+            fi
+          done
+          echo "source_sha=$SOURCE_SHA" >> "$GITHUB_OUTPUT"
+          echo "image_index_digest=$index_digest" >> "$GITHUB_OUTPUT"
+          echo "image_amd64=ghcr.io/${GITHUB_REPOSITORY}@${amd64_digest}" >> "$GITHUB_OUTPUT"
+          echo "digest_amd64=$amd64_digest" >> "$GITHUB_OUTPUT"
+          echo "image_arm64=ghcr.io/${GITHUB_REPOSITORY}@${arm64_digest}" >> "$GITHUB_OUTPUT"
+          echo "digest_arm64=$arm64_digest" >> "$GITHUB_OUTPUT"
+      - name: Scan the published linux/amd64 image with Trivy
+        id: trivy_amd64
+        if: ${{ always() && steps.targets.outputs.image_amd64 != '' }}
+        continue-on-error: true
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          version: v0.76.0
+          image-ref: ${{ steps.targets.outputs.image_amd64 }}
+          scanners: vuln
+          vuln-type: os,library
+          severity: UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL
+          format: json
+          output: work/audit-2026-10-21/Q4/security-published/trivy-linux-amd64.json
+          exit-code: '0'
+      - name: Scan the published linux/arm64 image with Trivy
+        id: trivy_arm64
+        if: ${{ always() && steps.targets.outputs.image_arm64 != '' }}
+        continue-on-error: true
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          version: v0.76.0
+          image-ref: ${{ steps.targets.outputs.image_arm64 }}
+          scanners: vuln
+          vuln-type: os,library
+          severity: UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL
+          format: json
+          output: work/audit-2026-10-21/Q4/security-published/trivy-linux-arm64.json
+          exit-code: '0'
+      - name: Record Trivy tool and database metadata
+        if: always()
+        continue-on-error: true
+        run: |
+          mkdir -p work/audit-2026-10-21/Q4/security-published
+          if command -v trivy >/dev/null 2>&1; then
+            trivy version --format json > work/audit-2026-10-21/Q4/security-published/trivy-version.json
+          else
+            printf '{}\n' > work/audit-2026-10-21/Q4/security-published/trivy-version.json
+          fi
+      - name: Assemble scanner input manifest
+        if: always()
+        env:
+          SOURCE_SHA: ${{ steps.targets.outputs.source_sha }}
+          IMAGE_INDEX_DIGEST: ${{ steps.targets.outputs.image_index_digest }}
+          IMAGE_AMD64: ${{ steps.targets.outputs.image_amd64 }}
+          DIGEST_AMD64: ${{ steps.targets.outputs.digest_amd64 }}
+          STATUS_AMD64: ${{ steps.trivy_amd64.outcome }}
+          IMAGE_ARM64: ${{ steps.targets.outputs.image_arm64 }}
+          DIGEST_ARM64: ${{ steps.targets.outputs.digest_arm64 }}
+          STATUS_ARM64: ${{ steps.trivy_arm64.outcome }}
+          NPM_STATUS: ${{ steps.npm_audit.outcome }}
+          NPM_EXIT_CODE: ${{ steps.npm_audit.outputs.exit_code }}
+        run: |
+          node --input-type=module <<'NODE'
+          import { readFileSync, writeFileSync } from 'node:fs';
+          const read = (name) => { try { return readFileSync(name, 'utf8').trim(); } catch { return ''; } };
+          const root = 'work/audit-2026-10-21/Q4/security-published/';
+          const manifest = {
+            sourceSha: process.env.SOURCE_SHA,
+            target: {
+              mode: 'published',
+              imageIndexDigest: process.env.IMAGE_INDEX_DIGEST || null,
+              platforms: {
+                'linux/amd64': { imageRef: process.env.IMAGE_AMD64 || '', manifestDigest: process.env.DIGEST_AMD64 || null, stepStatus: process.env.STATUS_AMD64 || 'missing', reportPath: `${root}trivy-linux-amd64.json` },
+                'linux/arm64': { imageRef: process.env.IMAGE_ARM64 || '', manifestDigest: process.env.DIGEST_ARM64 || null, stepStatus: process.env.STATUS_ARM64 || 'missing', reportPath: `${root}trivy-linux-arm64.json` },
+              },
+            },
+            npm: {
+              stepStatus: process.env.NPM_STATUS || 'missing',
+              exitCode: process.env.NPM_EXIT_CODE === '' ? null : Number(process.env.NPM_EXIT_CODE),
+              startedAt: read(`${root}npm-started-at.txt`),
+              completedAt: read(`${root}npm-completed-at.txt`),
+              npmVersion: read(`${root}npm-version.txt`),
+              registry: read(`${root}npm-registry.txt`),
+              reportPath: `${root}npm-audit.json`,
+            },
+            packageLockPath: 'package-lock.json',
+            exceptionsPath: 'docs/security-exceptions.json',
+            trivy: { versionPath: `${root}trivy-version.json` },
+          };
+          writeFileSync(`${root}scan-inputs.json`, `${JSON.stringify(manifest, null, 2)}\n`);
+          NODE
+      - name: Evaluate scanner reports and exact-image exceptions
+        if: always()
+        run: node scripts/security-disposition.mjs work/audit-2026-10-21/Q4/security-published/scan-inputs.json work/audit-2026-10-21/Q4/security-published/disposition-summary.json
+      - name: Add published-image disposition to the run summary
+        if: always()
+        run: |
+          if test -s work/audit-2026-10-21/Q4/security-published/disposition-summary.json; then
+            cat work/audit-2026-10-21/Q4/security-published/disposition-summary.json >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Retain raw published-image advisory and disposition evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: q4-published-security-${{ github.run_id }}-${{ github.run_attempt }}
+          path: work/audit-2026-10-21/Q4/security-published/
+          if-no-files-found: warn
+          retention-days: 90
