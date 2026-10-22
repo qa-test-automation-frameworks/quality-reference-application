@@ -150,16 +150,9 @@ async function trackedSourceTreeDigest() {
 }
 
 function runNativeTests(testIds, environment) {
-  const pattern = `^(?:${testIds.map(escapeRegex).join('|')})$`;
   const result = spawnSync(
     process.execPath,
-    [
-      '--test',
-      '--test-concurrency=1',
-      '--test-name-pattern',
-      pattern,
-      'tests/integration.test.js',
-    ],
+    nativeTestArguments(testIds),
     {
       cwd: process.cwd(),
       encoding: 'utf8',
@@ -178,6 +171,18 @@ function runNativeTests(testIds, environment) {
     output: `${result.stdout ?? ''}${result.stderr ?? ''}`,
     results: parseTapResults(`${result.stdout ?? ''}${result.stderr ?? ''}`),
   };
+}
+
+export function nativeTestArguments(testIds) {
+  const pattern = `^(?:${testIds.map(escapeRegex).join('|')})$`;
+  return [
+    '--test',
+    '--test-reporter=tap',
+    '--test-concurrency=1',
+    '--test-name-pattern',
+    pattern,
+    'tests/integration.test.js',
+  ];
 }
 
 async function applyControlledMutation(control) {
