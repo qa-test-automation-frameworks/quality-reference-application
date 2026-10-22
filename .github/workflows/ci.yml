@@ -405,6 +405,62 @@ jobs:
             echo '- This source-tagged image is awaiting its exact-digest security disposition.'
           } >> "$GITHUB_STEP_SUMMARY"
 
+  risk-proof:
+    name: risk-proof
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [verify, publish]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    env:
+      APP_NAMESPACE: quality-reference-risk-proof
+      APP_PORT: '4300'
+      APP_SOURCE_SHA: ${{ github.sha }}
+      CANDIDATE_IMAGE_DIGEST: ${{ needs.publish.outputs.image_digest }}
+      DATABASE_URL: postgres://reference_app:portfolio-ci-pass@127.0.0.1:5432/reference_app
+      POSTGRES_PASSWORD: portfolio-ci-pass
+      TEST_MODE: 'true'
+      TEST_CONTROL_TOKEN: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+    services:
+      postgres:
+        image: postgres:18.6-alpine3.23@sha256:885cf05d376c7cf27afef02073e6bdac3841252537f16e244fd1c1e6a7c99fb1
+        env:
+          POSTGRES_DB: reference_app
+          POSTGRES_USER: reference_app
+          POSTGRES_PASSWORD: portfolio-ci-pass
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U reference_app -d reference_app"
+          --health-interval 2s
+          --health-timeout 2s
+          --health-retries 30
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - name: Install pinned npm
+        run: npm install --global npm@10.9.4
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Run clean and candidate-derived native fault controls
+        run: node scripts/run-risk-proofs.mjs
+      - name: Upload candidate-bound risk proofs
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: qra-risk-proofs
+          path: work/audit-2026-10-21/NEW-ORG-01/risk-proofs/risk-proofs.json
+          if-no-files-found: ignore
+          retention-days: 30
+          compression-level: 0
+
   published-advisory:
     name: Published image advisory disposition
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
