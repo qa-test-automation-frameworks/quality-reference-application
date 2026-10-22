@@ -153,6 +153,7 @@ jobs:
         with:
           version: v0.76.0
           image-ref: ${{ steps.targets.outputs.image_amd64 }}
+          cache-dir: ${{ github.workspace }}/.cache/trivy
           scanners: vuln
           vuln-type: os,library
           severity: UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL
@@ -167,6 +168,7 @@ jobs:
         with:
           version: v0.76.0
           image-ref: ${{ steps.targets.outputs.image_arm64 }}
+          cache-dir: ${{ github.workspace }}/.cache/trivy
           scanners: vuln
           vuln-type: os,library
           severity: UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL
@@ -177,11 +179,28 @@ jobs:
         if: always()
         continue-on-error: true
         run: |
+          root=work/audit-2026-10-21/Q4/security
           mkdir -p work/audit-2026-10-21/Q4/security
           if command -v trivy >/dev/null 2>&1; then
-            trivy version --format json > work/audit-2026-10-21/Q4/security/trivy-version.json
+            trivy version --format json > "$root/trivy-version-cli.json"
+            db_metadata="$GITHUB_WORKSPACE/.cache/trivy/db/metadata.json"
+            if [[ -s "$db_metadata" ]]; then
+              cp "$db_metadata" "$root/trivy-db-metadata.json"
+            else
+              printf '{}\n' > "$root/trivy-db-metadata.json"
+            fi
+            TRIVY_EVIDENCE_DIR="$root" node --input-type=module <<'NODE'
+            import { readFileSync, writeFileSync } from 'node:fs';
+            const root = process.env.TRIVY_EVIDENCE_DIR;
+            const version = JSON.parse(readFileSync(`${root}/trivy-version-cli.json`, 'utf8'));
+            let vulnerabilityDB = null;
+            try {
+              vulnerabilityDB = JSON.parse(readFileSync(`${root}/trivy-db-metadata.json`, 'utf8'));
+            } catch {}
+            writeFileSync(`${root}/trivy-version.json`, `${JSON.stringify({ Version: version.Version, VulnerabilityDB: vulnerabilityDB }, null, 2)}\n`);
+          NODE
           else
-            printf '{}\n' > work/audit-2026-10-21/Q4/security/trivy-version.json
+            printf '{}\n' > "$root/trivy-version.json"
           fi
       - name: Assemble scanner input manifest
         if: always()
@@ -305,6 +324,7 @@ jobs:
           if-no-files-found: ignore
           retention-days: 30
       - name: Start isolated Docker Compose stack
+        id: compose_start
         run: docker compose up --build --detach
       - name: Verify container readiness and claim journey
         run: |
@@ -317,12 +337,12 @@ jobs:
           test -s /tmp/quality-reference-ready.json
           node scripts/smoke-compose.mjs
       - name: Collect Compose diagnostics on failure
-        if: failure()
+        if: failure() && steps.compose_start.outcome != 'skipped'
         run: |
           docker compose ps --all
           docker compose logs --no-color
       - name: Stop isolated Docker Compose stack
-        if: always()
+        if: always() && steps.compose_start.outcome != 'skipped'
         run: docker compose down --volumes --remove-orphans
 
   publish:
@@ -460,6 +480,7 @@ jobs:
         with:
           version: v0.76.0
           image-ref: ${{ steps.targets.outputs.image_amd64 }}
+          cache-dir: ${{ github.workspace }}/.cache/trivy
           scanners: vuln
           vuln-type: os,library
           severity: UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL
@@ -474,6 +495,7 @@ jobs:
         with:
           version: v0.76.0
           image-ref: ${{ steps.targets.outputs.image_arm64 }}
+          cache-dir: ${{ github.workspace }}/.cache/trivy
           scanners: vuln
           vuln-type: os,library
           severity: UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL
@@ -484,11 +506,28 @@ jobs:
         if: always()
         continue-on-error: true
         run: |
+          root=work/audit-2026-10-21/Q4/security-published
           mkdir -p work/audit-2026-10-21/Q4/security-published
           if command -v trivy >/dev/null 2>&1; then
-            trivy version --format json > work/audit-2026-10-21/Q4/security-published/trivy-version.json
+            trivy version --format json > "$root/trivy-version-cli.json"
+            db_metadata="$GITHUB_WORKSPACE/.cache/trivy/db/metadata.json"
+            if [[ -s "$db_metadata" ]]; then
+              cp "$db_metadata" "$root/trivy-db-metadata.json"
+            else
+              printf '{}\n' > "$root/trivy-db-metadata.json"
+            fi
+            TRIVY_EVIDENCE_DIR="$root" node --input-type=module <<'NODE'
+            import { readFileSync, writeFileSync } from 'node:fs';
+            const root = process.env.TRIVY_EVIDENCE_DIR;
+            const version = JSON.parse(readFileSync(`${root}/trivy-version-cli.json`, 'utf8'));
+            let vulnerabilityDB = null;
+            try {
+              vulnerabilityDB = JSON.parse(readFileSync(`${root}/trivy-db-metadata.json`, 'utf8'));
+            } catch {}
+            writeFileSync(`${root}/trivy-version.json`, `${JSON.stringify({ Version: version.Version, VulnerabilityDB: vulnerabilityDB }, null, 2)}\n`);
+          NODE
           else
-            printf '{}\n' > work/audit-2026-10-21/Q4/security-published/trivy-version.json
+            printf '{}\n' > "$root/trivy-version.json"
           fi
       - name: Assemble scanner input manifest
         if: always()

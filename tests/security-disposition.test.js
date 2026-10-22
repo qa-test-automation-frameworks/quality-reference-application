@@ -15,7 +15,10 @@ function cleanTrivyReport(architecture) {
     SchemaVersion: 2,
     ArtifactName: `qra:${architecture}`,
     ArtifactType: 'container_image',
-    Metadata: { OS: 'alpine', Architecture: architecture },
+    Metadata: {
+      OS: { Family: 'alpine', Name: '3.23' },
+      ImageConfig: { os: 'linux', architecture },
+    },
     Results: [{ Target: 'alpine', Type: 'alpine', Vulnerabilities: [] }],
   };
 }
@@ -263,6 +266,14 @@ test('a published child digest must match the scanner image reference', () => {
   const result = evaluateSecurityDisposition(input, now);
   assert.equal(result.disposition, 'unavailable');
   assert.ok(result.errors.some((error) => error.includes('does not match its child-manifest digest')));
+});
+
+test('Trivy image platform must match the requested operating system and architecture', () => {
+  const input = cleanInput();
+  input.target.platforms['linux/amd64'].report.Metadata.ImageConfig.architecture = 'arm64';
+  const result = evaluateSecurityDisposition(input, now);
+  assert.equal(result.disposition, 'unavailable');
+  assert.ok(result.errors.some((error) => error.includes('image platform does not match linux/amd64')));
 });
 
 test('a truncated npm report or mismatched npm exit code is unavailable, not clean', () => {

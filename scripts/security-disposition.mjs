@@ -252,9 +252,12 @@ function normalizeTrivyTarget({ target, report, stepStatus, database, now }) {
     errors.push(`Trivy JSON for ${target?.platform ?? 'an unknown platform'} is incomplete.`);
     return { errors, findings };
   }
-  const expectedArchitecture = target.platform?.split('/')[1];
-  if (report.Metadata.Architecture !== expectedArchitecture) {
-    errors.push(`Trivy image architecture does not match ${target.platform}.`);
+  const [expectedOs, expectedArchitecture] = target.platform?.split('/') ?? [];
+  const imageConfig = report.Metadata.ImageConfig;
+  if (!isRecord(imageConfig)
+    || imageConfig.os !== expectedOs
+    || imageConfig.architecture !== expectedArchitecture) {
+    errors.push(`Trivy image platform does not match ${target.platform}.`);
   }
   if (typeof target.imageRef !== 'string' || target.imageRef.trim() === '') {
     errors.push(`Trivy image reference is missing for ${target.platform}.`);
