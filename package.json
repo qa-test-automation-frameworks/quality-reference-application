@@ -20,7 +20,8 @@
     "db:migrate": "node scripts/migrate.js",
     "check:openapi": "node scripts/check-openapi.js",
     "test:openapi": "node --test tests/openapi-check.test.js",
-    "verify": "npm run check:runtime && npm run test:openapi && npm run check:openapi && npm test"
+    "test:release-descriptor": "node --test tests/release-descriptor.test.mjs",
+    "verify": "npm run check:runtime && npm run test:openapi && npm run check:openapi && npm run test:release-descriptor && npm test"
   },
   "dependencies": {
     "pg": "8.16.3",

@@ -19,6 +19,10 @@ This page records the exact QRA release inputs so consumers can pin the same app
 
 The release tag points to the source revision above. Main run 39753401824 passed hosted verification and published the image with SBOM and provenance attestations enabled. The versioned image label is `0.2.0`; `org.opencontainers.image.revision` is the source revision above. The Docker Buildx record is linked for the build inputs and trace. Later docs-only builds may produce a new source-tagged digest; that does not update a consumer pin or establish compatibility for that consumer.
 
+## Release descriptor
+
+Each successful `main` push that passes `verify` and publishes an immutable image uploads one `release-descriptor.json` (under 64 KiB) as the `qra-release-descriptor` Actions artifact, retained for 30 days. Schema version 1 binds the actual Buildx digest to the source SHA, run ID and attempt, package version, fixture version, supported API versions, and UTC generation time. Its stable run and artifact references are available to the read-only assurance verifier; signed download URLs are not retained.
+
 ## Readiness identity
 
 `GET /health/ready` returns `status`, `sourceRevision`, `seedVersion`, and `datastore`. A consumer should require `status: "ready"`, match `sourceRevision` to the intended image source, match `seedVersion` to `v0.1.0`, and require `datastore: true`. The endpoint does not report the package version or image digest; use the image label and publication receipt for those values.

@@ -13,6 +13,7 @@ import {
   assertTransition,
 } from './domain.js';
 import { closeDatabase, migrate, pool, resetNamespace, seedNamespace, tokenDigest } from './database.js';
+import { FIXTURE_VERSION, SUPPORTED_API_VERSIONS } from './release-metadata.js';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 const namespace = process.env.APP_NAMESPACE;
@@ -21,6 +22,9 @@ const testMode = process.env.TEST_MODE === 'true';
 const controlToken = process.env.TEST_CONTROL_TOKEN;
 const sessionTtlSeconds = Number(process.env.SESSION_TTL_SECONDS || 3600);
 const maxBodyBytes = 16 * 1024;
+const apiVersionNumbers = SUPPORTED_API_VERSIONS.map((version) => version.slice(1)).join('|');
+const apiVersionPattern = new RegExp(`^/api/v(${apiVersionNumbers})(?=/)`);
+const apiRoutePattern = new RegExp(`^/api/v(?:${apiVersionNumbers})(?=/)`);
 let ready = false;
 
 const uuid = z.uuid();
@@ -160,9 +164,9 @@ function claimDto(row) {
 async function handleApi(req, res, url, correlationId, { databasePool = pool, testHooks } = {}) {
   const method = req.method || 'GET';
   const path = url.pathname;
-  const versionMatch = /^\/api\/v([12])(?=\/)/.exec(path);
+  const versionMatch = apiVersionPattern.exec(path);
   const apiVersion = versionMatch?.[1] || '1';
-  const routePath = path.replace(/^\/api\/v[12](?=\/)/, '/api/v1');
+  const routePath = path.replace(apiRoutePattern, '/api/v1');
   if (method === 'GET' && path === '/health/ready') {
     if (!ready) throw httpError(503, 'NOT_READY', 'Database migrations and fixture initialization have not completed.');
     let result;
@@ -171,7 +175,7 @@ async function handleApi(req, res, url, correlationId, { databasePool = pool, te
     } catch {
       throw httpError(503, 'NOT_READY', 'The datastore is not currently available.');
     }
-    return { status: 200, body: { status: 'ready', sourceRevision: sourceSha, seedVersion: 'v0.1.0', datastore: result.rows[0].connected === 1 } };
+    return { status: 200, body: { status: 'ready', sourceRevision: sourceSha, seedVersion: FIXTURE_VERSION, datastore: result.rows[0].connected === 1 } };
   }
 
   if (path === '/__test/seed' || path === '/__test/reset') {
@@ -181,7 +185,7 @@ async function handleApi(req, res, url, correlationId, { databasePool = pool, te
     await testHooks?.beforeNamespaceControl?.({ operation: path.endsWith('/reset') ? 'reset' : 'seed', namespace });
     if (path === '/__test/reset') await resetNamespace(namespace);
     else await seedNamespace(namespace);
-    return { status: 200, body: { namespace, seedVersion: 'v0.1.0', reset: path.endsWith('/reset') } };
+    return { status: 200, body: { namespace, seedVersion: FIXTURE_VERSION, reset: path.endsWith('/reset') } };
   }
 
   if (method === 'POST' && path === '/api/v1/sessions') {
@@ -437,7 +441,7 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   const server = createServer();
   server.listen(port, '0.0.0.0', () => {
     const address = server.address();
-    process.stdout.write(`${JSON.stringify({ event: 'server-ready', port: typeof address === 'object' && address ? address.port : port, namespace, sourceRevision: sourceSha, seedVersion: 'v0.1.0' })}\n`);
+    process.stdout.write(`${JSON.stringify({ event: 'server-ready', port: typeof address === 'object' && address ? address.port : port, namespace, sourceRevision: sourceSha, seedVersion: FIXTURE_VERSION })}\n`);
   });
   const shutdown = () => {
     const timeout = setTimeout(() => process.exit(1), 5_000);
