@@ -20,6 +20,7 @@ function showError(message) {
   errorBox.textContent = message;
   errorBox.hidden = false;
   notice.textContent = '';
+  errorBox.focus();
 }
 
 function clearMessages() {
@@ -38,10 +39,18 @@ async function api(path, { method = 'GET', body } = {}) {
   return payload;
 }
 
-function renderClaims(claims) {
+function renderClaims(claims, focusTarget) {
   claimRows.replaceChildren();
   for (const claim of claims) {
     const row = document.createElement('tr');
+    row.dataset.claimId = claim.id;
+    row.tabIndex = -1;
+    const formattedAmount = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' })
+      .format(claim.amountMinor / 100);
+    row.setAttribute(
+      'aria-label',
+      `Claim ${claim.id}, ${formattedAmount}, ${claim.status.replace('_', ' ')}, version ${claim.version}`,
+    );
     const values = [
       claim.id,
       claim.policyId,
@@ -60,6 +69,7 @@ function renderClaims(claims) {
       for (const status of nextStates) {
         const button = document.createElement('button');
         button.type = 'button';
+        button.dataset.claimAction = '';
         button.textContent = `Set ${status.replace('_', ' ')}`;
         button.addEventListener('click', () => transition(claim, status));
         actionCell.append(button);
@@ -70,9 +80,20 @@ function renderClaims(claims) {
     row.append(actionCell);
     claimRows.append(row);
   }
+  if (focusTarget) {
+    const row = [...claimRows.querySelectorAll('tr')].find(
+      (item) => item.dataset.claimId === focusTarget.claimId,
+    );
+    if (row) {
+      const nextAction = focusTarget.mode === 'next-action'
+        ? row.querySelector('button[data-claim-action]')
+        : null;
+      (nextAction || row).focus();
+    }
+  }
 }
 
-async function refreshWorkspace() {
+async function refreshWorkspace({ focusTarget } = {}) {
   const policies = await api('/api/v2/policies');
   policySection.hidden = session.user.role !== 'member';
   claimFormSection.hidden = session.user.role !== 'member';
@@ -93,7 +114,7 @@ async function refreshWorkspace() {
   amountLimitHelp.textContent = `API v2 accepts claims up to $${amountInput.max}.`;
   const claims = await api('/api/v2/claims');
   claimsSection.hidden = false;
-  renderClaims(claims.items);
+  renderClaims(claims.items, focusTarget);
 }
 
 async function transition(claim, status) {
@@ -102,8 +123,8 @@ async function transition(claim, status) {
     await api(`/api/v2/claims/${encodeURIComponent(claim.id)}`, {
       method: 'PATCH', body: { status, expectedVersion: claim.version },
     });
+    await refreshWorkspace({ focusTarget: { claimId: claim.id, mode: 'next-action' } });
     notice.textContent = `Claim ${claim.id} moved to ${status.replace('_', ' ')}.`;
-    await refreshWorkspace();
   } catch (error) {
     showError(error.message);
   }
@@ -117,6 +138,10 @@ sessionForm.addEventListener('submit', async (event) => {
     sessionStatus.textContent = `Active as ${session.user.displayName} (${session.user.role}).`;
     signOutButton.hidden = false;
     await refreshWorkspace();
+    const destinationHeading = document.querySelector(
+      session.user.role === 'member' ? '#claim-form-heading' : '#claims-heading',
+    );
+    destinationHeading.focus();
     notice.textContent = 'Session started. Data is scoped to this application run.';
   } catch (error) {
     showError(error.message);
@@ -133,13 +158,13 @@ claimForm.addEventListener('submit', async (event) => {
     return;
   }
   try {
-    await api('/api/v2/claims', {
+    const created = await api('/api/v2/claims', {
       method: 'POST',
       body: { policyId: form.get('policyId'), amountMinor, currency: 'USD', category: form.get('category') },
     });
     claimForm.reset();
+    await refreshWorkspace({ focusTarget: { claimId: created.claim.id, mode: 'row' } });
     notice.textContent = 'The claim was submitted and persisted.';
-    await refreshWorkspace();
   } catch (error) {
     showError(error.message);
   }
@@ -154,4 +179,5 @@ signOutButton.addEventListener('click', () => {
   claimsSection.hidden = true;
   claimRows.replaceChildren();
   clearMessages();
+  identitySelect.focus();
 });

@@ -23,7 +23,9 @@ label { font-weight: 650; }
 input, select, button { min-height: 2.75rem; border: 1px solid #7a8998; border-radius: 0.3rem; padding: 0.5rem 0.7rem; font: inherit; }
 button { width: fit-content; border-color: #174b7a; color: #fff; background: #174b7a; font-weight: 650; cursor: pointer; }
 button:hover { background: #103a60; }
-button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible { outline: 3px solid #f5a524; outline-offset: 2px; }
+button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible,
+h2[tabindex="-1"]:focus-visible, tr[tabindex="-1"]:focus-visible,
+#error:focus-visible { outline: 3px solid #f5a524; outline-offset: 2px; }
 button.secondary { margin-top: 0.5rem; color: #17334d; background: #fff; }
 .policy-list { padding-left: 1.2rem; }
 .table-scroll { overflow-x: auto; }
