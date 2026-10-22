@@ -16,7 +16,7 @@ export const RISK_CONTROLS = [
     controlId: 'cross-member-isolation',
     path: 'src/server.js',
     before: 'p.owner_id = $3::uuid)',
-    after: 'TRUE)',
+    after: 'p.owner_id = $3::uuid OR TRUE)',
     expectedNativeTestIds: [
       'persisted claim journey enforces identity ownership, reviewer transitions, concurrency, and run isolation',
     ],
