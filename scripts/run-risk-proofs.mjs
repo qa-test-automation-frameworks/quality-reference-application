@@ -421,8 +421,7 @@ export async function createRiskProofBundle({
 }
 
 async function main() {
-  const outputPath =
-    'work/audit-2026-10-21/NEW-ORG-01/risk-proofs/risk-proofs.json';
+  const outputPath = 'work/evidence/risk-proofs/risk-proofs.json';
   const bundle = await createRiskProofBundle({ outputPath });
   console.log(
     `Recorded ${bundle.proofs.length} candidate-bound QRA fault controls.`,

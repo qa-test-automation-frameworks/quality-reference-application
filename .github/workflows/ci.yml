@@ -46,8 +46,8 @@ jobs:
         continue-on-error: true
         run: |
           set -eu
-          mkdir -p work/audit-2026-10-21/Q4/security
-          out=work/audit-2026-10-21/Q4/security
+          mkdir -p work/evidence/security
+          out=work/evidence/security
           date -u +%Y-%m-%dT%H:%M:%SZ > "$out/npm-started-at.txt"
           npm --version > "$out/npm-version.txt"
           npm config get registry > "$out/npm-registry.txt"
@@ -89,7 +89,7 @@ jobs:
             exit 1
           fi
           echo "source_sha=$source_sha" >> "$GITHUB_OUTPUT"
-          mkdir -p work/audit-2026-10-21/Q4/security
+          mkdir -p work/evidence/security
           if [[ "$EVENT_NAME" == 'pull_request' || "$EVENT_NAME" == 'push' ]]; then
             docker buildx build --platform linux/amd64 --load --tag qra-security:amd64 --build-arg "APP_SOURCE_SHA=$source_sha" .
             docker buildx build --platform linux/arm64 --load --tag qra-security:arm64 --build-arg "APP_SOURCE_SHA=$source_sha" .
@@ -119,15 +119,15 @@ jobs:
             echo 'A digest image_ref requires an explicit source_sha input.' >&2
             exit 1
           fi
-          docker buildx imagetools inspect "$image_ref" > work/audit-2026-10-21/Q4/security/image-inspect.txt
-          index_digest="$(awk '$1 == "Digest:" { print $2; exit }' work/audit-2026-10-21/Q4/security/image-inspect.txt)"
+          docker buildx imagetools inspect "$image_ref" > work/evidence/security/image-inspect.txt
+          index_digest="$(awk '$1 == "Digest:" { print $2; exit }' work/evidence/security/image-inspect.txt)"
           if [[ ! "$index_digest" =~ ^sha256:[a-f0-9]{64}$ ]]; then
             echo 'The published image index digest is missing or malformed.' >&2
             exit 1
           fi
-          docker buildx imagetools inspect --raw "$image_ref" > work/audit-2026-10-21/Q4/security/image-index.json
-          amd64_digest="$(jq -er '[.manifests[] | select(.platform.os == "linux" and .platform.architecture == "amd64") | .digest] | if length == 1 then .[0] else error("expected exactly one linux/amd64 manifest") end' work/audit-2026-10-21/Q4/security/image-index.json)"
-          arm64_digest="$(jq -er '[.manifests[] | select(.platform.os == "linux" and .platform.architecture == "arm64") | .digest] | if length == 1 then .[0] else error("expected exactly one linux/arm64 manifest") end' work/audit-2026-10-21/Q4/security/image-index.json)"
+          docker buildx imagetools inspect --raw "$image_ref" > work/evidence/security/image-index.json
+          amd64_digest="$(jq -er '[.manifests[] | select(.platform.os == "linux" and .platform.architecture == "amd64") | .digest] | if length == 1 then .[0] else error("expected exactly one linux/amd64 manifest") end' work/evidence/security/image-index.json)"
+          arm64_digest="$(jq -er '[.manifests[] | select(.platform.os == "linux" and .platform.architecture == "arm64") | .digest] | if length == 1 then .[0] else error("expected exactly one linux/arm64 manifest") end' work/evidence/security/image-index.json)"
           for arch in amd64 arm64; do
             digest="$amd64_digest"
             if [[ "$arch" == arm64 ]]; then digest="$arm64_digest"; fi
@@ -158,7 +158,7 @@ jobs:
           vuln-type: os,library
           severity: UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL
           format: json
-          output: work/audit-2026-10-21/Q4/security/trivy-linux-amd64.json
+          output: work/evidence/security/trivy-linux-amd64.json
           exit-code: '0'
       - name: Scan the linux/arm64 image with Trivy
         id: trivy_arm64
@@ -173,14 +173,14 @@ jobs:
           vuln-type: os,library
           severity: UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL
           format: json
-          output: work/audit-2026-10-21/Q4/security/trivy-linux-arm64.json
+          output: work/evidence/security/trivy-linux-arm64.json
           exit-code: '0'
       - name: Record Trivy tool and database metadata
         if: always()
         continue-on-error: true
         run: |
-          root=work/audit-2026-10-21/Q4/security
-          mkdir -p work/audit-2026-10-21/Q4/security
+          root=work/evidence/security
+          mkdir -p work/evidence/security
           if command -v trivy >/dev/null 2>&1; then
             trivy version --format json > "$root/trivy-version-cli.json"
             db_metadata="$GITHUB_WORKSPACE/.cache/trivy/db/metadata.json"
@@ -220,7 +220,7 @@ jobs:
           node --input-type=module <<'NODE'
           import { readFileSync, writeFileSync } from 'node:fs';
           const read = (name) => { try { return readFileSync(name, 'utf8').trim(); } catch { return ''; } };
-          const root = 'work/audit-2026-10-21/Q4/security/';
+          const root = 'work/evidence/security/';
           const manifest = {
             sourceSha: process.env.SOURCE_SHA,
             target: {
@@ -248,19 +248,19 @@ jobs:
           NODE
       - name: Evaluate scanner reports and exact-image exceptions
         if: always()
-        run: node scripts/security-disposition.mjs work/audit-2026-10-21/Q4/security/scan-inputs.json work/audit-2026-10-21/Q4/security/disposition-summary.json
+        run: node scripts/security-disposition.mjs work/evidence/security/scan-inputs.json work/evidence/security/disposition-summary.json
       - name: Add advisory disposition to the run summary
         if: always()
         run: |
-          if test -s work/audit-2026-10-21/Q4/security/disposition-summary.json; then
-            cat work/audit-2026-10-21/Q4/security/disposition-summary.json >> "$GITHUB_STEP_SUMMARY"
+          if test -s work/evidence/security/disposition-summary.json; then
+            cat work/evidence/security/disposition-summary.json >> "$GITHUB_STEP_SUMMARY"
           fi
       - name: Retain raw advisory, database, and disposition evidence
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: q4-security-advisory-${{ github.run_id }}-${{ github.run_attempt }}
-          path: work/audit-2026-10-21/Q4/security/
+          path: work/evidence/security/
           if-no-files-found: warn
           retention-days: 90
 
@@ -310,9 +310,9 @@ jobs:
         run: npm run verify
       - name: Capture named Q2 datastore outcomes
         run: |
-          mkdir -p work/audit-2026-10-21/Q2/logs
+          mkdir -p work/evidence/datastore-controls/logs
           set -o pipefail
-          node --test --test-concurrency=1 --test-name-pattern='same-version writers are actually queued|claim creation and transition roll back|expired sessions are rejected|readiness reports datastore loss|reset admission rejects active work' tests/integration.test.js 2>&1 | tee work/audit-2026-10-21/Q2/logs/hosted-focused-integration.log
+          node --test --test-concurrency=1 --test-name-pattern='same-version writers are actually queued|claim creation and transition roll back|expired sessions are rejected|readiness reports datastore loss|reset admission rejects active work' tests/integration.test.js 2>&1 | tee work/evidence/datastore-controls/logs/hosted-focused-integration.log
       - name: Check lock and transaction mutation controls
         run: scripts/verify-datastore-mutations.sh
       - name: Upload Q2 verification evidence
@@ -320,7 +320,7 @@ jobs:
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: q2-datastore-evidence-${{ github.run_id }}-${{ github.run_attempt }}
-          path: work/audit-2026-10-21/Q2/
+          path: work/evidence/datastore-controls/
           if-no-files-found: ignore
           retention-days: 30
       - name: Start isolated Docker Compose stack
@@ -344,6 +344,15 @@ jobs:
       - name: Stop isolated Docker Compose stack
         if: always() && steps.compose_start.outcome != 'skipped'
         run: docker compose down --volumes --remove-orphans
+
+      - name: Test local identifier and evidence path guards
+        run: |
+          bash scripts/test-check-local-identifiers.sh
+          bash scripts/test-check-neutral-evidence-paths.sh
+      - name: Check local identifiers and evidence paths
+        run: |
+          bash scripts/check-local-identifiers.sh
+          bash scripts/check-neutral-evidence-paths.sh
 
   publish:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
@@ -456,7 +465,7 @@ jobs:
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: qra-risk-proofs
-          path: work/audit-2026-10-21/NEW-ORG-01/risk-proofs/risk-proofs.json
+          path: work/evidence/risk-proofs/risk-proofs.json
           if-no-files-found: ignore
           retention-days: 30
           compression-level: 0
@@ -486,8 +495,8 @@ jobs:
         continue-on-error: true
         run: |
           set -eu
-          mkdir -p work/audit-2026-10-21/Q4/security-published
-          out=work/audit-2026-10-21/Q4/security-published
+          mkdir -p work/evidence/security-published
+          out=work/evidence/security-published
           date -u +%Y-%m-%dT%H:%M:%SZ > "$out/npm-started-at.txt"
           npm --version > "$out/npm-version.txt"
           npm config get registry > "$out/npm-registry.txt"
@@ -511,7 +520,7 @@ jobs:
           PUBLISHED_DIGEST: ${{ needs.publish.outputs.image_digest }}
         run: |
           set -euo pipefail
-          out=work/audit-2026-10-21/Q4/security-published
+          out=work/evidence/security-published
           mkdir -p "$out"
           image_ref="ghcr.io/${GITHUB_REPOSITORY}@${PUBLISHED_DIGEST}"
           docker buildx imagetools inspect "$image_ref" > "$out/image-inspect.txt"
@@ -553,7 +562,7 @@ jobs:
           vuln-type: os,library
           severity: UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL
           format: json
-          output: work/audit-2026-10-21/Q4/security-published/trivy-linux-amd64.json
+          output: work/evidence/security-published/trivy-linux-amd64.json
           exit-code: '0'
       - name: Scan the published linux/arm64 image with Trivy
         id: trivy_arm64
@@ -568,14 +577,14 @@ jobs:
           vuln-type: os,library
           severity: UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL
           format: json
-          output: work/audit-2026-10-21/Q4/security-published/trivy-linux-arm64.json
+          output: work/evidence/security-published/trivy-linux-arm64.json
           exit-code: '0'
       - name: Record Trivy tool and database metadata
         if: always()
         continue-on-error: true
         run: |
-          root=work/audit-2026-10-21/Q4/security-published
-          mkdir -p work/audit-2026-10-21/Q4/security-published
+          root=work/evidence/security-published
+          mkdir -p work/evidence/security-published
           if command -v trivy >/dev/null 2>&1; then
             trivy version --format json > "$root/trivy-version-cli.json"
             db_metadata="$GITHUB_WORKSPACE/.cache/trivy/db/metadata.json"
@@ -614,7 +623,7 @@ jobs:
           node --input-type=module <<'NODE'
           import { readFileSync, writeFileSync } from 'node:fs';
           const read = (name) => { try { return readFileSync(name, 'utf8').trim(); } catch { return ''; } };
-          const root = 'work/audit-2026-10-21/Q4/security-published/';
+          const root = 'work/evidence/security-published/';
           const manifest = {
             sourceSha: process.env.SOURCE_SHA,
             target: {
@@ -642,18 +651,18 @@ jobs:
           NODE
       - name: Evaluate scanner reports and exact-image exceptions
         if: always()
-        run: node scripts/security-disposition.mjs work/audit-2026-10-21/Q4/security-published/scan-inputs.json work/audit-2026-10-21/Q4/security-published/disposition-summary.json
+        run: node scripts/security-disposition.mjs work/evidence/security-published/scan-inputs.json work/evidence/security-published/disposition-summary.json
       - name: Add published-image disposition to the run summary
         if: always()
         run: |
-          if test -s work/audit-2026-10-21/Q4/security-published/disposition-summary.json; then
-            cat work/audit-2026-10-21/Q4/security-published/disposition-summary.json >> "$GITHUB_STEP_SUMMARY"
+          if test -s work/evidence/security-published/disposition-summary.json; then
+            cat work/evidence/security-published/disposition-summary.json >> "$GITHUB_STEP_SUMMARY"
           fi
       - name: Retain raw published-image advisory and disposition evidence
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: q4-published-security-${{ github.run_id }}-${{ github.run_attempt }}
-          path: work/audit-2026-10-21/Q4/security-published/
+          path: work/evidence/security-published/
           if-no-files-found: warn
           retention-days: 90
