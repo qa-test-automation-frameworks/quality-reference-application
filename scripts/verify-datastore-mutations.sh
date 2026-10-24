@@ -2,7 +2,7 @@
 set -euo pipefail
 
 repo_root="$(git rev-parse --show-toplevel)"
-evidence_root="${Q2_EVIDENCE_DIR:-$repo_root/work/audit-2026-10-21/Q2/controls}"
+evidence_root="${Q2_EVIDENCE_DIR:-$repo_root/work/evidence/datastore-controls/controls}"
 candidate_root="$(mktemp -d "${TMPDIR:-/tmp}/q2-mutations.XXXXXX")"
 mkdir -p "$evidence_root"
 declare -a candidate_worktrees=()
